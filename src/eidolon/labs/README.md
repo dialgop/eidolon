@@ -31,6 +31,8 @@ A lab should:
 
 ## Status
 
-No labs implemented yet. Per the project roadmap (see `/docs/architecture.md`),
-the first lab is expected to be **episodic/working memory**, since later labs
-(attention, world model, self-model, ...) are meant to build on top of it.
+- `working_memory/` — implemented. A capacity-limited, decaying buffer with
+  rehearsal. See its README for details.
+
+Next up per the roadmap: episodic memory (likely consolidating items that
+fall out of working memory), then attention.

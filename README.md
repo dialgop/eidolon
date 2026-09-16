@@ -29,9 +29,11 @@ tests/           tests, mirroring src/eidolon/
 
 ## Status
 
-Early scaffolding stage. No labs implemented yet — see
-[`src/eidolon/labs/README.md`](src/eidolon/labs/README.md) for the
-convention each lab follows and what's planned first.
+- `labs/working_memory` — implemented (capacity-limited, decaying buffer).
+- Everything else — not started yet.
+
+See [`src/eidolon/labs/README.md`](src/eidolon/labs/README.md) for the
+convention each lab follows.
 
 ## Development
 
@@ -40,6 +42,11 @@ python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 pytest
 ```
+
+If this machine also has ROS 2 sourced in your shell (e.g. `/opt/ros/*/setup.bash`
+in `.bashrc`), it'll leak into `PYTHONPATH` and can break the venv's `pytest`
+plugin autoloading. Run with `PYTHONPATH= pytest` in that case, or use a
+sub-shell that doesn't source ROS.
 
 ## Related
 
