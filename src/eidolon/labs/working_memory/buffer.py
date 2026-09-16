@@ -34,12 +34,21 @@ class WorkingMemory:
     def add(self, content: Any) -> tuple[Item, Item | None]:
         """Insert `content` at full activation.
 
-        If the buffer is already at capacity, the least-active item is
-        evicted first. Returns (new_item, evicted_item_or_None).
+        If an item with the same `content` already exists, it is refreshed
+        in place instead of duplicated (no eviction happens in that case).
+        Otherwise, if the buffer is already at capacity, the least-active
+        item is evicted first; ties (items last touched in the same tick)
+        go to the oldest-inserted one. Returns (item, evicted_item_or_None).
         """
+        existing = self._find(content)
+        if existing is not None:
+            existing.activation = self.rehearsal_activation
+            existing.last_accessed = self._clock
+            return existing, None
+
         evicted = None
         if len(self._items) >= self.capacity:
-            evicted = min(self._items, key=lambda i: (i.activation, i.last_accessed))
+            evicted = min(self._items, key=lambda i: i.activation)
             self._items.remove(evicted)
 
         item = Item(
@@ -53,10 +62,15 @@ class WorkingMemory:
 
     def rehearse(self, content: Any) -> Item | None:
         """Refresh the activation of an item matching `content`, if present."""
+        item = self._find(content)
+        if item is not None:
+            item.activation = self.rehearsal_activation
+            item.last_accessed = self._clock
+        return item
+
+    def _find(self, content: Any) -> Item | None:
         for item in self._items:
             if item.content == content:
-                item.activation = self.rehearsal_activation
-                item.last_accessed = self._clock
                 return item
         return None
 
