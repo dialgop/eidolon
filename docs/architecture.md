@@ -37,6 +37,68 @@ Early-stage experiments implement individual mechanisms in isolation, as
 - Global Workspace
 - Predictive processing
 
+## Inter-lab interface contracts
+
+Labs are meant to be built in isolation but eventually read from and write
+into each other (e.g. episodic memory consolidating what falls out of
+working memory; attention selecting what working memory holds). This
+section tracks what each lab actually promises to the others, so that
+"isolated experiment" doesn't quietly turn into "nobody knows what depends
+on what." Update it whenever a lab's public surface changes.
+
+### `eidolon.labs.working_memory`
+
+- **Exposes:** `WorkingMemory(capacity, decay_rate, forget_threshold,
+  rehearsal_activation)` and `Item(content, activation, created_at,
+  last_accessed)`.
+- **Operations:** `add(content) -> (Item, evicted: Item | None)`,
+  `rehearse(content) -> Item | None`, `tick() -> list[Item]` (forgotten
+  items), `.items -> list[Item]` (read-only snapshot), `len(wm)`.
+- **Retrieval semantics:** exact-match only (`Item.content == query`) in v0.
+  This is an explicit, reversible scoping decision, not a permanent
+  contract — see the "Design notes" in the lab's own README. Consumers
+  should not assume `_find`'s matching strategy stays `==` forever, only
+  that `add`/`rehearse` take arbitrary `content: Any`.
+- **Time semantics:** `tick()` is a logical step, not wall-clock time.
+  `decay_rate`/`forget_threshold` are only meaningful relative to how often
+  the caller ticks — a consumer driving this from a real control loop (e.g.
+  ROS 2 at ~10 Hz) must recalibrate these constants against that tick rate,
+  not reuse the lab's demo defaults.
+- **Not yet decided:** whether future consumers need similarity-based (not
+  just exact-match) recall. This is deferred to when the episodic memory
+  lab is scoped, since it determines whether `working_memory` needs a
+  `get_by_similarity`-style operation or stays exact-match-only while
+  episodic memory adds similarity on its own store.
+
+### `eidolon.labs.episodic_memory` — not started yet
+
+Retrieval strategy decided as a two-phase roadmap, not a one-time
+exact-vs-similarity choice:
+
+- **v0 (to build now): exact-match cued recall**, consistent with
+  `working_memory`. An episode is retrieved by matching a cue against
+  stored content/context with `==`-style comparison — no embeddings, no
+  similarity metric. This is the only retrieval operation v0 implements.
+- **v1 (later, optional): similarity-based cued recall**, added once a
+  representation lab (something that produces embeddings/feature vectors —
+  not built yet) exists to feed it. Not implemented now; the interface
+  should not need to be redesigned to add it later.
+- **What "prepared for both" means concretely:** cues are passed as
+  arbitrary values (no `str`/hashable-only typing that would preclude a
+  vector cue later), and recall is exposed as its own method (e.g.
+  `recall(cue) -> list[Episode]`) rather than inlined dict/key lookups, so
+  a v1 `recall_by_similarity(cue) -> list[Episode]` can be added alongside
+  it without changing how v0's `recall` is called. Same reversibility
+  discipline as `working_memory`'s `_find`: exact-match is v0's
+  implementation choice, not a permanent contract.
+
+### Shared base interface (e.g. a `CognitiveModule` protocol)
+
+Not defined yet, deliberately. With only one lab built, any shared
+interface would be guessed rather than extracted from real overlap.
+Revisit once episodic memory exists and the two labs' actual common shape
+(likely something like `tick()` plus a read-only view of state) is visible.
+
 ## Language split
 
 - **Cognitive core and labs: Python.** This is where the actual thinking
