@@ -83,14 +83,16 @@ exact-vs-similarity choice:
   representation lab (something that produces embeddings/feature vectors —
   not built yet) exists to feed it. Not implemented now; the interface
   should not need to be redesigned to add it later.
-- **What "prepared for both" means concretely:** cues are passed as
-  arbitrary values (no `str`/hashable-only typing that would preclude a
-  vector cue later), and recall is exposed as its own method (e.g.
+- **What "prepared for both" means concretely — and its limit:** cues are
+  passed as arbitrary values, and recall is exposed as its own method (e.g.
   `recall(cue) -> list[Episode]`) rather than inlined dict/key lookups, so
   a v1 `recall_by_similarity(cue) -> list[Episode]` can be added alongside
-  it without changing how v0's `recall` is called. Same reversibility
-  discipline as `working_memory`'s `_find`: exact-match is v0's
-  implementation choice, not a permanent contract.
+  it without changing how v0's `recall` is called — the matching
+  *mechanism* is reversible, same as `working_memory`'s `_find`. But an
+  arbitrary cue/content type doesn't, by itself, carry a numeric
+  representation to run similarity math on — that's a separate thing v1
+  will need (e.g. an `embedding` field populated by a future representation
+  lab), not something that falls out of "prepared for both" for free.
 
 ### Shared base interface (e.g. a `CognitiveModule` protocol)
 

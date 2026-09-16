@@ -40,13 +40,23 @@ information fades out on its own?
   Rationale: nothing built so far needs anything richer, and building
   similarity search speculatively would be guessing at a shape we don't
   have evidence for yet.
-  **Reversibility constraint this implies:** the public API (`add`,
-  `rehearse`, `Item.content: Any`) doesn't assume `==` at the type level —
-  callers pass arbitrary content, not a pre-hashed key — so `_find`'s
-  internal matching strategy can later be swapped or extended (e.g. for
-  fuzzy/similarity-based lookup) without changing call sites. Treat the
-  current exact-match behavior as an implementation detail of `_find`, not
-  a guaranteed contract.
+  **Reversibility is partial, and it's worth being precise about where it
+  ends.** `content: Any` doesn't lock in `==` as *the* matching mechanism —
+  `_find`'s internals can be swapped later without changing `add`/
+  `rehearse`'s call sites. Equality itself is nearly no constraint (every
+  Python object supports `==` at minimum via identity), so exact-match
+  retrieval places essentially no real requirement on `content`. But
+  similarity-based retrieval (cosine similarity, kNN) needs an actual
+  numeric representation — an embedding — and `Any` guarantees nothing
+  about that; it can't be conjured from an arbitrary `content` value just
+  by changing `_find`'s comparison. So: the matching *mechanism* is
+  reversible, but adding similarity retrieval isn't just a `_find` change —
+  it needs a representation that most `content` values don't carry on
+  their own. The likely shape when that's needed: a separate field (e.g.
+  `embedding: Sequence[float] | None`) stored alongside `content`, produced
+  by whatever future lab generates representations, rather than derived
+  from `content` itself. Left undecided on purpose until that lab exists —
+  not an oversight.
 - **Eviction is activation-only, not "activation + recency."** It might look
   like a hybrid of a Cowan-style activation model and LRU, but it isn't one
   in practice: since `decay_rate` is a single constant shared by every item
