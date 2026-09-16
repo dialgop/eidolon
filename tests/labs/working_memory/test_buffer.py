@@ -65,3 +65,19 @@ def test_add_at_capacity_ties_evict_oldest_inserted():
     _, evicted = wm.add("c")
     assert evicted is not None
     assert evicted.content == "a"
+
+
+def test_recency_overrides_insertion_order():
+    """Distinguishes created_at from last_accessed: "a" is the oldest
+    inserted item, but refreshing it (without touching "b" or "c") makes
+    its activation the highest, so it should survive eviction despite
+    not being the most recently *inserted*."""
+    wm = WorkingMemory(capacity=3, decay_rate=0.3)
+    wm.add("a")
+    wm.add("b")
+    wm.add("c")
+    wm.tick()  # "a", "b", "c" decay equally
+    wm.add("a")  # refreshes "a": full activation, last_accessed bumped; created_at unchanged, still oldest
+    _, evicted = wm.add("d")
+    assert evicted is not None
+    assert evicted.content != "a"
