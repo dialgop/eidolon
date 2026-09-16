@@ -1,0 +1,21 @@
+[project]
+name = "eidolon"
+version = "0.1.0"
+description = "Consciousness Lab: an experimental platform for embodied artificial cognition"
+requires-python = ">=3.10"
+readme = "README.md"
+dependencies = [
+    "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
