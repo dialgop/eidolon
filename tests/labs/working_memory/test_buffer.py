@@ -46,3 +46,22 @@ def test_rehearsal_prevents_forgetting():
 def test_rehearse_unknown_content_returns_none():
     wm = WorkingMemory()
     assert wm.rehearse("missing") is None
+
+
+def test_add_existing_content_refreshes_instead_of_duplicating():
+    wm = WorkingMemory(capacity=3, decay_rate=0.5)
+    wm.add("a")
+    wm.tick()  # "a" decays to 0.5
+    item, evicted = wm.add("a")
+    assert evicted is None
+    assert len(wm) == 1
+    assert item.activation == 1.0
+
+
+def test_add_at_capacity_ties_evict_oldest_inserted():
+    wm = WorkingMemory(capacity=2)
+    wm.add("a")
+    wm.add("b")  # same tick as "a": activation and last_accessed both tie
+    _, evicted = wm.add("c")
+    assert evicted is not None
+    assert evicted.content == "a"
