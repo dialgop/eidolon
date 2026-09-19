@@ -33,6 +33,9 @@ A lab should:
 
 - `working_memory/` — implemented. A capacity-limited, decaying buffer with
   rehearsal. See its README for details.
+- `episodic_memory/` — implemented. Consolidates everything that leaves
+  `working_memory` (capacity eviction and decay forgetting alike) into an
+  unbounded store with exact-match cued recall. See its README for details,
+  and `/docs/architecture.md` for how the two labs' interface is defined.
 
-Next up per the roadmap: episodic memory (likely consolidating items that
-fall out of working memory), then attention.
+Next up per the roadmap: attention.
