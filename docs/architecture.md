@@ -64,35 +64,82 @@ on what." Update it whenever a lab's public surface changes.
   the caller ticks — a consumer driving this from a real control loop (e.g.
   ROS 2 at ~10 Hz) must recalibrate these constants against that tick rate,
   not reuse the lab's demo defaults.
-- **Not yet decided:** whether future consumers need similarity-based (not
-  just exact-match) recall. This is deferred to when the episodic memory
-  lab is scoped, since it determines whether `working_memory` needs a
-  `get_by_similarity`-style operation or stays exact-match-only while
-  episodic memory adds similarity on its own store.
+- **Resolved:** `working_memory` stays exact-match-only in v0 and does not
+  grow a `get_by_similarity` operation. `episodic_memory` (below) is what
+  consolidates working memory's output and does its own retrieval on its
+  own store — similarity, if it ever gets added, lands there (v1), not
+  here.
 
-### `eidolon.labs.episodic_memory` — not started yet
+### `eidolon.labs.episodic_memory`
 
-Retrieval strategy decided as a two-phase roadmap, not a one-time
-exact-vs-similarity choice:
-
-- **v0 (to build now): exact-match cued recall**, consistent with
-  `working_memory`. An episode is retrieved by matching a cue against
-  stored content/context with `==`-style comparison — no embeddings, no
-  similarity metric. This is the only retrieval operation v0 implements.
-- **v1 (later, optional): similarity-based cued recall**, added once a
-  representation lab (something that produces embeddings/feature vectors —
-  not built yet) exists to feed it. Not implemented now; the interface
-  should not need to be redesigned to add it later.
-- **What "prepared for both" means concretely — and its limit:** cues are
-  passed as arbitrary values, and recall is exposed as its own method (e.g.
-  `recall(cue) -> list[Episode]`) rather than inlined dict/key lookups, so
-  a v1 `recall_by_similarity(cue) -> list[Episode]` can be added alongside
-  it without changing how v0's `recall` is called — the matching
-  *mechanism* is reversible, same as `working_memory`'s `_find`. But an
-  arbitrary cue/content type doesn't, by itself, carry a numeric
-  representation to run similarity math on — that's a separate thing v1
-  will need (e.g. an `embedding` field populated by a future representation
-  lab), not something that falls out of "prepared for both" for free.
+- **Exposes:** `EpisodicMemory()` and `Episode(content, occurred_at,
+  context, provenance)` (frozen; `context`/`provenance` are
+  `MappingProxyType`, read-only).
+- **Operations:** `encode(content, context, provenance) -> Episode`,
+  `recall_by_content(cue, *, newest_first=False) -> list[Episode]`,
+  `recall_by_context(cue, *, newest_first=False) -> list[Episode]`,
+  `recall_by_provenance(cue, *, newest_first=False) -> list[Episode]`,
+  `.episodes -> list[Episode]` (read-only snapshot), `len(em)`.
+- **Ingestion path: consolidates from `working_memory`, unconditionally.**
+  `EpisodicMemory` never pulls from working memory itself — the caller
+  (currently the lab's own `demo.py`) is the consolidation point: it calls
+  `encode()` for every item working memory reports as gone, whether via
+  `WorkingMemory.add`'s `evicted` return (capacity) or `WorkingMemory.tick`'s
+  `forgotten` list (decay). **Both** paths are consolidated, not just
+  decay. v0 has no selectivity in encoding — everything that leaves working
+  memory gets stored; selectivity is deferred until attention/goals labs
+  exist to decide what's worth remembering (see the `TODO` in
+  `EpisodicMemory.encode`). v0's only selectivity is in retrieval, via
+  recall cues.
+- **Type decoupling:** `encode()` takes plain fields, never a
+  `working_memory.Item` — the two labs share no type and no clock.
+  `occurred_at` is stamped by episodic memory's own logical clock
+  (incremented per `encode()` call), not wall-clock time and not working
+  memory's tick counter (see working_memory's own "Time semantics" above
+  for why the latter wouldn't transfer meaningfully anyway). If the agent
+  ever gets one shared/global clock, a caller-supplied agent timestamp may
+  replace this — deferred until that clock exists.
+- **`occurred_at` is encoding time, not event time**, since consolidation
+  happens after an item already left working memory — consistently later
+  than the actual event. Will split into `occurred_at` (event) /
+  `encoded_at` (consolidation) once working memory can supply an event
+  timestamp. `newest_first` on the `recall_by_*` methods sorts by encoding
+  order, not `occurred_at` — they only coincide today because `occurred_at`
+  *is* the encoding clock.
+- **`context`/`provenance` copying is shallow, not deep — known v0
+  limitation.** `encode()` copies the top-level dict only; mutating a
+  *nested* dict/list value in what the caller passed in still reaches the
+  stored episode. Deferred (not fixed) since `context` is always `{}` in
+  v0 anyway; revisit once a lab needs nested context.
+- **`context` vs. `provenance`, both required, no default.** `context` is
+  the episodic context (what else was going on); `provenance` is why the
+  episode was stored (consolidation bookkeeping, e.g.
+  `{"reason": "decay_forgotten"}`). Kept as separate fields so consolidation
+  metadata doesn't crowd out `context`, which v0 currently leaves `{}` (no
+  attention/perception yet to populate it) but which should stay usable for
+  real situational data once something produces it.
+- **`context`/`provenance` are immutable once stored, at the top level.**
+  `encode()` copies both and wraps them in `MappingProxyType`; reassigning
+  a top-level key in the caller's original dict afterward, or mutating the
+  returned `Episode`'s fields directly, cannot change what's stored —
+  modulo the shallow-copy limitation on nested values noted above.
+- **Retrieval semantics:** `recall_by_content` is exact-match (`==`).
+  `recall_by_context`/`recall_by_provenance` are **subset**-match — a cue
+  matches if its key/value pairs are a subset of the episode's field, so
+  `cue={}` matches everything and multi-field contexts aren't reduced to
+  exact-equality-or-nothing. This is the two-phase roadmap decided for this
+  lab: **v0 exact/subset matching now, v1 similarity later**, once a
+  representation lab (embeddings — not built) exists to feed it. Adding v1
+  means a new `recall_by_similarity` method alongside these, not a
+  replacement — but note an arbitrary `content`/cue doesn't carry a
+  similarity-computable representation on its own; v1 will need a separate
+  representation (e.g. an `embedding` field), not something derived from
+  `content` by changing the comparison.
+- **Recall order:** oldest-first (encoding order) by default; every
+  `recall_by_*` takes `newest_first=True` to reverse it.
+- **Deliberately out of scope for v0:** `action`, `outcome`, `keys`
+  (multi-field cue indexing), `embedding`. Not stubbed as unused fields —
+  simply not part of `Episode` yet.
 
 ### Shared base interface (e.g. a `CognitiveModule` protocol)
 
