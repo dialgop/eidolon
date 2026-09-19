@@ -27,7 +27,7 @@ def scenario_eviction() -> None:
     report(wm, "buffer full, apple/ball tied")
 
     _, evicted = wm.add("cup")
-    print(f"tied eviction: {evicted.content} evicted (oldest of the tie)")
+    print(f"tied eviction: {evicted.content} evicted (activation tie, broken by insertion order)")
     report(wm, "after adding 'cup'")
 
     item, evicted = wm.add("ball")
