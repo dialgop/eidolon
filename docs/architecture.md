@@ -36,6 +36,16 @@ Early-stage experiments implement individual mechanisms in isolation, as
 - Uncertainty
 - Global Workspace
 - Predictive processing
+- Semantic memory *(added after the original roadmap; not yet in scope —
+  see note below)*
+
+Semantic memory (conceptual/categorical knowledge — "what a cup is", not
+"the cup I saw") wasn't in the original roadmap above but belongs on it: a
+belief store gives an object identity and persistence, not meaning. It's
+deliberately deferred, not forgotten — it needs a representation layer
+(embeddings) that doesn't exist yet, and needs temporal continuity (the
+world model) to have raw material to generalize from. See the world model's
+contract below for how these two will eventually connect.
 
 ## Inter-lab interface contracts
 
