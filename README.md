@@ -32,6 +32,8 @@ tests/           tests, mirroring src/eidolon/
 - `labs/working_memory` — implemented (capacity-limited, decaying buffer).
 - `labs/episodic_memory` — implemented (consolidates from working memory,
   exact-match cued recall).
+- `labs/visual_attention` — implemented (perception input contract and
+  object-level bottom-up/top-down attention).
 - Everything else — not started yet.
 
 See [`src/eidolon/labs/README.md`](src/eidolon/labs/README.md) for the

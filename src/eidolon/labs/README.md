@@ -37,5 +37,10 @@ A lab should:
   `working_memory` (capacity eviction and decay forgetting alike) into an
   unbounded store with exact-match cued recall. See its README for details,
   and `/docs/architecture.md` for how the two labs' interface is defined.
+- `visual_attention/` — implemented. The input front end: `PerceivedObject`
+  and `Scene` (what an adapter hands to Eidolon) plus object-level
+  bottom-up/top-down selection blended by a factor `t`, with inhibition of
+  return. See its README for sources and for what is our own adaptation.
 
-Next up per the roadmap: attention.
+Next up: the general, non-visual attention lab, once a second use makes its
+shape visible.
