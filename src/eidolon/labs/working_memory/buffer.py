@@ -34,14 +34,18 @@ class WorkingMemory:
     def add(self, content: Any) -> tuple[Item, Item | None]:
         """Insert `content` at full activation.
 
-        If an item with the same `content` already exists, it is refreshed
-        in place instead of duplicated (no eviction happens in that case).
+        If an item matching `content` already exists, it is refreshed in
+        place instead of duplicated (no eviction happens in that case), and
+        its `content` is replaced with the new object even if it compares
+        equal: `add` carries a new observation, so the buffer holds the
+        latest one. The item keeps its position, `created_at` and identity.
         Otherwise, if the buffer is already at capacity, the least-active
         item is evicted first; ties (items last touched in the same tick)
         go to the oldest-inserted one. Returns (item, evicted_item_or_None).
         """
         existing = self._find(content)
         if existing is not None:
+            existing.content = content
             existing.activation = self.rehearsal_activation
             existing.last_accessed = self._clock
             return existing, None
@@ -61,7 +65,9 @@ class WorkingMemory:
         return item, evicted
 
     def rehearse(self, content: Any) -> Item | None:
-        """Refresh the activation of an item matching `content`, if present."""
+        """Refresh the activation of an item matching `content`, if present.
+        Unlike `add`, this keeps the stored content: rehearsal is internal
+        and brings no new observation."""
         item = self._find(content)
         if item is not None:
             item.activation = self.rehearsal_activation

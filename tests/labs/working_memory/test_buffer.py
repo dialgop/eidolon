@@ -1,4 +1,14 @@
+from dataclasses import dataclass, field
+
 from eidolon.labs.working_memory import WorkingMemory
+
+
+@dataclass(frozen=True)
+class Sighting:
+    """Equal by `id` only, like a tracked object: `note` is volatile."""
+
+    id: str
+    note: str = field(default="", compare=False)
 
 
 def test_add_below_capacity_does_not_evict():
@@ -81,3 +91,58 @@ def test_recency_overrides_insertion_order():
     _, evicted = wm.add("d")
     assert evicted is not None
     assert evicted.content != "a"
+
+
+def test_add_existing_content_replaces_content_with_the_new_observation():
+    wm = WorkingMemory()
+    first = Sighting("cup", note="left of the plate")
+    second = Sighting("cup", note="right of the plate")
+    wm.add(first)
+    item, evicted = wm.add(second)
+    assert evicted is None
+    assert len(wm) == 1
+    assert item.content is second
+    assert wm.items[0].content is second
+
+
+def test_add_replaces_content_even_when_the_new_content_is_equal_to_the_old():
+    wm = WorkingMemory()
+    first = Sighting("cup", note="same")
+    second = Sighting("cup", note="same")
+    assert first == second and first is not second
+    wm.add(first)
+    item, _ = wm.add(second)
+    assert item.content is second
+
+
+def test_add_replacement_keeps_identity_position_and_created_at():
+    wm = WorkingMemory(capacity=2)
+    wm.add(Sighting("cup", note="old"))
+    wm.add(Sighting("plate"))
+    wm.tick()
+    original = wm.items[0]
+    item, _ = wm.add(Sighting("cup", note="new"))
+    assert item is original
+    assert wm.items[0] is original
+    assert item.created_at == 0
+    assert item.last_accessed == 1
+    assert item.activation == 1.0
+
+
+def test_rehearse_keeps_the_stored_content():
+    wm = WorkingMemory()
+    first = Sighting("cup", note="old")
+    wm.add(first)
+    item = wm.rehearse(Sighting("cup", note="new"))
+    assert item is not None
+    assert item.content is first
+
+
+def test_evicted_and_forgotten_items_carry_the_latest_content():
+    wm = WorkingMemory(capacity=1, decay_rate=0.9, forget_threshold=0.5)
+    wm.add(Sighting("cup", note="old"))
+    latest = Sighting("cup", note="latest")
+    wm.add(latest)
+    forgotten = wm.tick()
+    assert [f.content for f in forgotten] == [latest]
+    assert forgotten[0].content.note == "latest"

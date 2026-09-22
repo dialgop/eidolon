@@ -59,6 +59,14 @@ on what." Update it whenever a lab's public surface changes.
   contract — see the "Design notes" in the lab's own README. Consumers
   should not assume `_find`'s matching strategy stays `==` forever, only
   that `add`/`rehearse` take arbitrary `content: Any`.
+- **Refresh semantics:** `add` on content that matches an existing item
+  refreshes it in place (no duplicate, no eviction) **and replaces its
+  `content` with the newly added object**, even if it compares equal: `==`
+  may mean identity (e.g. a `PerceivedObject` is equal by `track_id`), and
+  `add` carries a new observation. The `Item` object, its buffer position
+  and `created_at` are kept. `rehearse` only refreshes activation and keeps
+  the stored content. Consumers therefore see the latest content in
+  `.items` and in the evicted/forgotten items that `add`/`tick` return.
 - **Time semantics:** `tick()` is a logical step, not wall-clock time.
   `decay_rate`/`forget_threshold` are only meaningful relative to how often
   the caller ticks — a consumer driving this from a real control loop (e.g.
@@ -141,12 +149,83 @@ on what." Update it whenever a lab's public surface changes.
   (multi-field cue indexing), `embedding`. Not stubbed as unused fields —
   simply not part of `Episode` yet.
 
+### `eidolon.labs.visual_attention`
+
+The input front end. Eidolon stays a pure cognition library: an embodiment
+or adapter (scripted scenes today, Webots/NAO later) reports what it
+perceives as `PerceivedObject`s, and this lab decides which ones get
+selected. It does not know where objects come from, and detection, tracking
+and feature extraction stay on the adapter side.
+
+```text
+adapter (outside Eidolon) → Scene → VisualAttention.select() → caller adds selected to WM
+```
+
+`select` returns its choice; it never writes to working memory. The caller
+does, the same pattern as episodic consolidation, so labs stay decoupled.
+
+- **Exposes:** `PerceivedObject`, `Scene`, `VisualAttention`, `Selection`,
+  `learn_weights`.
+- **`PerceivedObject`** (frozen): `track_id` (required, non-empty),
+  `observed_at: int`, and optional `label`, `confidence` in `[0, 1]`, flat
+  `features: Mapping[str, float]` (read-only), `position` + `frame`
+  (`frame` required when `position` is given), `source`. **Equality and
+  hashing use `track_id` only.** `position` is unused by v0 attention.
+- **`Scene`** (frozen): `observed_at: int` and `objects: tuple[...]`. A
+  list raises `TypeError`; `track_id`s must be unique within a scene.
+- **Operations:**
+  `VisualAttention(suppression_duration=4, peak_ratio=0.5).select(scene, k,
+  t=0.0, weights=None) -> list[Selection]` and
+  `learn_weights(training_scene, target_track_id) -> Mapping[str, float]`
+  (raises `ValueError` for an unknown target, a scene with no other object,
+  or a target with no features). `Selection` is `(percept, salience)`.
+- **Selection semantics:** salience is `(1 - t)·bottom_up + t·top_down`,
+  `t` in `[0, 1]` (`ValueError` outside), each map normalized by its
+  maximum. `t=0` is pure bottom-up (goal-free exploration) and `t=1` pure
+  top-down (search with learned `weights`, required when `t > 0`). `k` is a
+  maximum: up to `k` objects, most salient first, ties in scene order.
+- **Inhibition of return, two parts.** Within a scene it is just the ranked
+  top-`k` (select, inhibit, repeat). Across frames it is our own extension:
+  everything `select` returns is excluded from later calls for
+  `suppression_duration` units of `Scene.observed_at`. Suppressed objects
+  still count as context for the others' contrast.
+- **Time semantics:** `VisualAttention` has no clock; it uses the caller's
+  `Scene.observed_at`, and `select` never advances one. Durations are in the
+  adapter's `observed_at` units. `observed_at` must not decrease between
+  calls (`ValueError`, and the rejected call changes nothing).
+- **Sources:** "inspired by" Frintrop, Backer & Rome (DAGM 2005) for the
+  two-mode framework, and Frintrop, Werner & García (CVPR 2015) for
+  center-surround contrast only. The object-level adaptation and the parts
+  that are ours (normalization, peak definition, weight clamping, cross-frame
+  inhibition of return) are listed in the lab's README.
+- **Working memory keeps the latest observation.** Adding a selected
+  `PerceivedObject` again (same `track_id`, newer position/confidence)
+  replaces the content held in working memory rather than keeping the stale
+  one; see working_memory's "Refresh semantics" above.
+- **Deferred:** several training scenes (geometric mean of weights),
+  search by label, use of `position`, a salience threshold.
+
+### Clocks
+
+Three separate clocks exist today, by conscious choice rather than
+oversight: `working_memory`'s logical tick (advanced by `tick()`),
+`episodic_memory`'s encode counter (advanced by `encode()`), and
+`visual_attention`'s caller-supplied `Scene.observed_at`. None is wall-clock
+time and none is shared, so each lab stays testable on its own and
+deterministic. The consequence is that "3 ticks" means something different
+in each lab. Unifying them behind one agent clock is deferred until
+embodiment provides one; when it does, `PerceivedObject.observed_at` is the
+natural event time for the `occurred_at`/`encoded_at` split in episodic
+memory.
+
 ### Shared base interface (e.g. a `CognitiveModule` protocol)
 
-Not defined yet, deliberately. With only one lab built, any shared
-interface would be guessed rather than extracted from real overlap.
-Revisit once episodic memory exists and the two labs' actual common shape
-(likely something like `tick()` plus a read-only view of state) is visible.
+Not defined yet, deliberately. With three labs built the common shape is
+starting to show (an explicit time step, plus a read-only view of state),
+but the labs advance time in three different ways (`tick()`, `encode()`,
+caller-supplied `observed_at`), which is exactly the kind of difference a
+premature protocol would paper over. Revisit once the clocks question is
+settled.
 
 ## Language split
 
