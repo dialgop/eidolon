@@ -72,6 +72,21 @@ information fades out on its own?
   `Item`. The buffer models a set of currently-active concepts, not a
   token stream, so a duplicate would just waste a capacity slot without
   encoding new information.
+- **`add()` also replaces the stored content; `rehearse()` doesn't.** A
+  match is decided by `==`, but `==` can mean "same thing" rather than
+  "same value": a tracked `PerceivedObject` compares equal by `track_id`
+  while its position and confidence change. `add` is how a new observation
+  enters, so on a match the item's `content` becomes the newly added object,
+  and the buffer always holds the latest observation. It replaces even when
+  the new content compares equal to the old one, since it is still a new
+  observation (for plain values like strings this is invisible). The
+  `Item` itself is kept: same object, same position in the buffer,
+  same `created_at`, so eviction tie-breaking by insertion order is
+  unaffected. `rehearse` is internal (no new information arrives), so it
+  only refreshes activation and leaves the content alone. Consumers of
+  evicted or forgotten items (e.g. episodic consolidation) therefore get the
+  most recent content the buffer held. Before this change, `add` kept the
+  *old* content on a match, which silently dropped newer observations.
 - **Decay is per logical tick, not wall-clock time or per-access.** `tick()`
   must be called explicitly; nothing decays on its own. This keeps the
   model deterministic and easy to test, but means `decay_rate` is currently
