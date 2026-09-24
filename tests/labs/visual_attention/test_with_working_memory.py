@@ -1,4 +1,4 @@
-from eidolon.labs.visual_attention import PerceivedObject
+from eidolon.percepts import PerceivedObject
 from eidolon.labs.working_memory import WorkingMemory
 
 

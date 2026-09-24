@@ -1,6 +1,7 @@
 import pytest
 
-from eidolon.labs.visual_attention import PerceivedObject, Scene, VisualAttention, learn_weights
+from eidolon.labs.visual_attention import VisualAttention, learn_weights
+from eidolon.percepts import PerceivedObject, Scene
 
 
 def obj(track_id, observed_at=0, **features):

@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Mapping
 
-from eidolon.labs.visual_attention.types import PerceivedObject, Scene
+from eidolon.percepts import PerceivedObject, Scene
 
 _EPSILON = 1e-12
 # Wide enough to leave the weight range reported in the original paper

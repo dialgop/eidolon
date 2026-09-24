@@ -11,7 +11,8 @@ Scripted scenes stand in for a perception adapter; Eidolon only ever sees
   C. How much top-down does it take to override the pop-out?
 """
 
-from eidolon.labs.visual_attention import PerceivedObject, Scene, VisualAttention, learn_weights
+from eidolon.labs.visual_attention import VisualAttention, learn_weights
+from eidolon.percepts import PerceivedObject, Scene
 
 
 def thing(track_id: str, label: str, observed_at: int, **features: float) -> PerceivedObject:

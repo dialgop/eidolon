@@ -2,16 +2,23 @@
 
 ## What this implements
 
-The input front end of the cognitive core: what perception hands to Eidolon
-(`PerceivedObject`, `Scene`) and an object-level visual attention mechanism
-that decides which of the perceived objects get selected (`VisualAttention`,
-`learn_weights`).
+An object-level visual attention mechanism that decides which perceived
+objects get selected (`VisualAttention`, `learn_weights`, `Selection`).
 
 Eidolon stays a pure cognition library. It never sees pixels, sensors or a
 robot: an embodiment/adapter (Webots/NAO later, scripted scenes now) reports
-what it perceives as `PerceivedObject`s, and this lab decides which ones
-matter. Detection, tracking and feature extraction are the adapter's job;
-*selection* is cognition and lives here.
+what it perceives as `PerceivedObject`s (from `eidolon.percepts` — the input
+contract shared across labs, not owned by this one; see below), and this lab
+decides which ones matter. Detection, tracking and feature extraction are
+the adapter's job; *selection* is cognition and lives here.
+
+`PerceivedObject`/`Scene` used to live in this lab (`types.py`). They moved
+to `eidolon.percepts` once `world_model` needed the same types — the Rule
+of Three, not a speculative abstraction — with no compatibility shim: every
+import site (this lab, its tests, its demo) was updated directly. See
+`docs/architecture.md`'s `eidolon.percepts` section for the current home of
+that contract, including `CoverageRegion` (added for `world_model`, unused
+by this lab).
 
 Two modes, as one continuous parameter `t` in `[0, 1]`:
 
@@ -150,10 +157,11 @@ python -m eidolon.labs.visual_attention.demo
 
 ## Files
 
-- `types.py`: `PerceivedObject` and `Scene`, the input contract.
-- `attention.py`: `VisualAttention`, `Selection`, `learn_weights`.
+- `attention.py`: `VisualAttention`, `Selection`, `learn_weights` — imports
+  `PerceivedObject`/`Scene` from `eidolon.percepts`.
 - `demo.py`: bottom-up exploration with inhibition of return, top-down
   search, and the `t` needed to override a pop-out.
 - `tests/labs/visual_attention/`: unit tests, including red-among-greens
   (bottom-up), faint target among a pop-out (top-down at `t=0`, `0.5`, `1`),
-  inhibition of return and its expiry.
+  inhibition of return and its expiry. `PerceivedObject`/`Scene`/
+  `CoverageRegion`'s own tests live in `tests/percepts/`.
