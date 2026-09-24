@@ -37,10 +37,17 @@ A lab should:
   `working_memory` (capacity eviction and decay forgetting alike) into an
   unbounded store with exact-match cued recall. See its README for details,
   and `/docs/architecture.md` for how the two labs' interface is defined.
-- `visual_attention/` — implemented. The input front end: `PerceivedObject`
-  and `Scene` (what an adapter hands to Eidolon) plus object-level
-  bottom-up/top-down selection blended by a factor `t`, with inhibition of
-  return. See its README for sources and for what is our own adaptation.
+- `visual_attention/` — implemented. Object-level bottom-up/top-down
+  selection blended by a factor `t`, with inhibition of return. Its input
+  contract (`PerceivedObject`, `Scene`) moved out to `eidolon.percepts`
+  once `world_model` became a second consumer. See its README for sources
+  and for what is our own adaptation.
+- `world_model/` — implemented. A belief store: persists object existence
+  and last known state independent of attention, fed by `Scene` directly
+  (not by `working_memory`). Decays and can be forgotten when unobserved,
+  or contradicted immediately by explicit negative evidence
+  (`Scene.coverage`). See its README — in particular "Scene provides
+  existence; working memory provides focus, not existence."
 
 Next up: the general, non-visual attention lab, once a second use makes its
 shape visible.

@@ -32,8 +32,11 @@ tests/           tests, mirroring src/eidolon/
 - `labs/working_memory` — implemented (capacity-limited, decaying buffer).
 - `labs/episodic_memory` — implemented (consolidates from working memory,
   exact-match cued recall).
-- `labs/visual_attention` — implemented (perception input contract and
-  object-level bottom-up/top-down attention).
+- `labs/visual_attention` — implemented (object-level bottom-up/top-down
+  attention; its `PerceivedObject`/`Scene` contract now lives in
+  `eidolon.percepts`).
+- `labs/world_model` — implemented (belief store: object permanence fed by
+  `Scene`, decay, and contradiction by negative evidence).
 - Everything else — not started yet.
 
 See [`src/eidolon/labs/README.md`](src/eidolon/labs/README.md) for the

@@ -159,13 +159,44 @@ on what." Update it whenever a lab's public surface changes.
   (multi-field cue indexing), `embedding`. Not stubbed as unused fields —
   simply not part of `Episode` yet.
 
+### `eidolon.percepts`
+
+The perception input contract: what an embodiment/adapter hands to
+Eidolon. Eidolon stays a pure cognition library — it never sees pixels,
+sensors or a robot; an adapter (scripted scenes today, Webots/NAO later)
+reports what it perceives as these structures, and it does not know where
+objects come from.
+
+Originally lived inside `visual_attention` (`types.py`); extracted to this
+top-level package once `world_model` needed the same types — the Rule of
+Three, not a speculative abstraction — with **no compatibility shim**:
+every import site was updated directly (`visual_attention`'s code, tests
+and demo), and the full test suite was re-run as the check for hidden
+coupling.
+
+- **Exposes:** `PerceivedObject`, `Scene`, `CoverageRegion`.
+- **`PerceivedObject`** (frozen): `track_id` (required, non-empty),
+  `observed_at: int`, and optional `label`, `confidence` in `[0, 1]`, flat
+  `features: Mapping[str, float]` (read-only), `position` + `frame`
+  (`frame` required when `position` is given), `source`. **Equality and
+  hashing use `track_id` only.** `position` is unused by v0 attention.
+- **`CoverageRegion`** (frozen): `center` (3-tuple), `radius` (`> 0`),
+  `frame` (required, non-empty). A region of space an adapter claims to
+  have observed — the basis for negative evidence (see `world_model`
+  below). Its `frame` follows the same rule as `PerceivedObject.frame`: a
+  consumer working in a different frame must raise, not guess.
+- **`Scene`** (frozen): `observed_at: int`, `objects: tuple[...]`, and
+  `coverage: tuple[CoverageRegion, ...] = ()`. Both tuple fields raise
+  `TypeError` on a list — no mutable handle survives construction.
+  `track_id`s must be unique within a scene. `coverage` defaults to
+  `()`: a `Scene` with no coverage claimed carries no negative evidence,
+  which is a conscious limitation for whichever lab reads it, not a
+  default to fill in casually.
+
 ### `eidolon.labs.visual_attention`
 
-The input front end. Eidolon stays a pure cognition library: an embodiment
-or adapter (scripted scenes today, Webots/NAO later) reports what it
-perceives as `PerceivedObject`s, and this lab decides which ones get
-selected. It does not know where objects come from, and detection, tracking
-and feature extraction stay on the adapter side.
+The first consumer of `eidolon.percepts`, deciding which perceived objects
+get selected.
 
 ```text
 adapter (outside Eidolon) → Scene → VisualAttention.select() → caller adds selected to WM
@@ -174,15 +205,8 @@ adapter (outside Eidolon) → Scene → VisualAttention.select() → caller adds
 `select` returns its choice; it never writes to working memory. The caller
 does, the same pattern as episodic consolidation, so labs stay decoupled.
 
-- **Exposes:** `PerceivedObject`, `Scene`, `VisualAttention`, `Selection`,
-  `learn_weights`.
-- **`PerceivedObject`** (frozen): `track_id` (required, non-empty),
-  `observed_at: int`, and optional `label`, `confidence` in `[0, 1]`, flat
-  `features: Mapping[str, float]` (read-only), `position` + `frame`
-  (`frame` required when `position` is given), `source`. **Equality and
-  hashing use `track_id` only.** `position` is unused by v0 attention.
-- **`Scene`** (frozen): `observed_at: int` and `objects: tuple[...]`. A
-  list raises `TypeError`; `track_id`s must be unique within a scene.
+- **Exposes:** `VisualAttention`, `Selection`, `learn_weights` (not
+  `PerceivedObject`/`Scene` — import those from `eidolon.percepts`).
 - **Operations:**
   `VisualAttention(suppression_duration=4, peak_ratio=0.5).select(scene, k,
   t=0.0, weights=None) -> list[Selection]` and
@@ -215,22 +239,100 @@ does, the same pattern as episodic consolidation, so labs stay decoupled.
 - **Deferred:** several training scenes (geometric mean of weights),
   search by label, use of `position`, a salience threshold.
 
+### `eidolon.labs.world_model`
+
+A belief store: persists beliefs about objects' existence and last known
+state, whether or not they're currently attended.
+
+```text
+adapter → Scene ─┬→ VisualAttention.select() → caller → WM → (consolidation) → EM
+                 └→ WorldModel.update(scene)
+```
+
+**Scene provides existence; working memory (and, later, semantic memory)
+provide focus and interpretation, not existence.** `WorldModel.update()`
+takes a `Scene` directly, never `working_memory`: working memory holds
+~4 attended items and forgets on its own rehearsal-driven schedule, so
+feeding beliefs from it would conflate "not currently attended" with "not
+believed to exist" and shrink object permanence to attention span. When
+focus/interpretation signals from working memory or semantic memory are
+integrated (deferred; semantic memory doesn't exist yet), they modulate an
+*existing* belief's confidence or interpretation — never create or delete
+one. `WorldModel` does not write to `episodic_memory` either; consolidation
+stays `working_memory → episodic_memory`, unchanged. This makes
+`world_model` a third, independent store with its own dynamics, not a
+derivative of the other two.
+
+v0 is a **belief store**, not a **predictor** (state + action → next
+state, à la Ha & Schmidhuber); a predictor needs actions, which don't exist
+yet, and is deferred.
+
+- **Exposes:** `WorldModel`, `Belief`, `UpdateReport`.
+- **`Belief`** (frozen, like `Episode` — not mutated in place like working
+  memory's `Item`): `percept: PerceivedObject`, `confidence` in `[0, 1]`,
+  `last_observed_at: int`, plus `track_id`/`label` properties reading
+  through to `percept`, and `confidence_at(observed_at, decay_rate)` — a
+  pure computation, reads nothing stored, mutates nothing.
+- **`UpdateReport`** (frozen): `new`, `refreshed`, `contradicted`,
+  `forgotten`, each `tuple[Belief, ...]` — grouped like `WorkingMemory.tick()`'s
+  return rather than left for the caller to diff two snapshots.
+- **`WorldModel(frame, decay_rate=0.1, forget_threshold=0.05)`:**
+  `update(scene) -> UpdateReport`, `beliefs`, `get(track_id)`, `len()`.
+- **Observation semantics: replace, not combine** — the same rule as
+  `working_memory.add()`. An object present in `scene.objects` creates a
+  belief (`new`) or replaces an existing one's `percept`/`confidence`/
+  `last_observed_at` outright (`refreshed`).
+- **Decay semantics — the storage invariant that avoids double-counting.**
+  A belief's stored `confidence`/`last_observed_at` are *never* mutated by
+  decay, only by a real observation or removal. `confidence` therefore
+  always means "confidence at `last_observed_at`", so
+  `Belief.confidence_at(t, decay_rate) = confidence * (1 - decay_rate) **
+  (t - last_observed_at)` can be computed fresh from that fixed origin on
+  any call, with no compounding risk. (The alternative — overwriting stored
+  confidence with a decayed snapshot each `update()` call while leaving
+  `last_observed_at` fixed — would decay an already-decayed number again
+  next call, double-counting elapsed time.) A consequence: `.get(...).confidence`
+  is the as-last-observed value, not a live number; callers wanting current
+  confidence call `.confidence_at(now, wm.decay_rate)`.
+- **Contradicted vs. forgotten are different claims, both removals, kept as
+  separate `UpdateReport` fields.** `forgotten`: passive, decayed past
+  `forget_threshold` with no evidence either way (absence of evidence).
+  `contradicted`: active, the belief's position falls inside a
+  `Scene.coverage` region but the object wasn't observed there (evidence of
+  absence). Contradiction is checked first and wins when both would apply:
+  explicit negative evidence outranks passive decay.
+- **`Scene.coverage` is optional and defaults to `()`** (see
+  `eidolon.percepts` above); with none claimed, this lab has no negative
+  evidence for that call and can only decay beliefs, never contradict them
+  — a conscious limitation. A belief with no `position` can likewise only
+  decay, never be contradicted (nothing to check).
+- **Frame and clock rules match `visual_attention`'s**, not new ones:
+  `frame` is configured once, no transforms happen here, and any object's
+  or coverage region's `frame` mismatching it raises — validated in a pass
+  before anything is mutated, so a rejected `update()` call changes
+  nothing. `observed_at` must not decrease between calls.
+- **Deferred:** motion model for unobserved beliefs (they don't move),
+  re-identification after occlusion (a new `track_id` is a new belief),
+  a predictor, and any read from working memory or semantic memory.
+
 ### Clocks
 
 Three separate clocks exist today, by conscious choice rather than
 oversight: `working_memory`'s logical tick (advanced by `tick()`),
-`episodic_memory`'s encode counter (advanced by `encode()`), and
-`visual_attention`'s caller-supplied `Scene.observed_at`. None is wall-clock
-time and none is shared, so each lab stays testable on its own and
-deterministic. The consequence is that "3 ticks" means something different
-in each lab. Unifying them behind one agent clock is deferred until
-embodiment provides one; when it does, `PerceivedObject.observed_at` is the
-natural event time for the `occurred_at`/`encoded_at` split in episodic
-memory.
+`episodic_memory`'s encode counter (advanced by `encode()`), and the
+caller-supplied `Scene.observed_at` that `visual_attention` and
+`world_model` both read (the same clock, not a fourth one — `world_model`
+is a second consumer of it, same monotonicity rule, no clock of its own).
+None is wall-clock time and none is shared across labs, so each stays
+testable on its own and deterministic. The consequence is that "3 ticks"
+means something different in each lab. Unifying them behind one agent clock
+is deferred until embodiment provides one; when it does,
+`PerceivedObject.observed_at` is the natural event time for the
+`occurred_at`/`encoded_at` split in episodic memory.
 
 ### Shared base interface (e.g. a `CognitiveModule` protocol)
 
-Not defined yet, deliberately. With three labs built the common shape is
+Not defined yet, deliberately. With four labs built the common shape is
 starting to show (an explicit time step, plus a read-only view of state),
 but the labs advance time in three different ways (`tick()`, `encode()`,
 caller-supplied `observed_at`), which is exactly the kind of difference a
