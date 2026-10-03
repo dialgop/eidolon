@@ -315,6 +315,50 @@ yet, and is deferred.
   re-identification after occlusion (a new `track_id` is a new belief),
   a predictor, and any read from working memory or semantic memory.
 
+### `eidolon.labs.representation`
+
+Similarity over adapter-supplied embeddings. It consumes `Embedding`s (from
+`eidolon.percepts`) and never produces them, so it is model-agnostic and
+needs no torch, CUDA or GPU; tests use synthetic vectors.
+
+- **Exposes:** `similarity`, `most_similar`, `Match`, `recognition_rates`,
+  `RecognitionRates`.
+- **`similarity(a, b)`:** cosine, in `[-1, 1]`. Raises `ValueError` across
+  spaces or across dimensions. The clamp to the range only absorbs
+  floating-point error (a unit-vector dot product can reach
+  `1.0000000000000002`); it is not a modelling choice. Cosine only in v0: on
+  L2-normalized vectors Euclidean ranks identically, so it is redundant.
+- **`most_similar(query, candidates, k, min_similarity=None)`:** `candidates`
+  are `(key, Embedding)` pairs (any iterable, read once); returns
+  `list[Match]`, most similar first. `k` is a maximum (int `>= 1`),
+  `min_similarity` is inclusive and within `[-1, 1]`, ties keep candidate
+  order. Every candidate is validated against the query's space and
+  dimension, so a bad one raises even outside the top `k`; nothing is
+  skipped silently. **`Match.key` is opaque**: the caller decides what it is
+  (a `track_id`, an index, an `Episode`), and this lab never hashes,
+  compares or inspects it. Callers filter out objects with no embedding.
+- **`recognition_rates(same_pairs, different_pairs, threshold)`:** pairs are
+  `(Embedding, Embedding)`, judged "same" at or above `threshold`
+  (inclusive, via `similarity`); returns `RecognitionRates(hit_rate,
+  false_alarm_rate)`. Both pair sets must be non-empty.
+- **The phenomenon:** recognition is a hit / false-alarm trade-off. With
+  well-separated categories some threshold is perfect; with overlapping ones
+  none is. Thresholds are per space and per modality, not universal, so none
+  is hardcoded; a real model's threshold is calibrated against its own
+  rates.
+- **Similarity is not identity.** Two different objects can share an
+  embedding (two identical mugs). Re-identification needs appearance,
+  position and time together; this lab supplies the appearance evidence
+  only.
+- **Sources:** framing inspired by Shepard (1987), Nosofsky (1986), Rosch &
+  Mervis (1975) and, for the hit / false-alarm vocabulary, Green & Swets
+  (1966), none of which is implemented; details in the lab's README.
+- **Deferred, each its own round:** `Episode.embedding` and
+  `recall_by_similarity` in `episodic_memory`; re-identification in
+  `world_model` (which revises its "identity is the adapter's job"
+  limitation); semantic memory's prototypes; a real-CLIP fixture recorded
+  once on the GPU machine and committed; Euclidean distance.
+
 ### Clocks
 
 Three separate clocks exist today, by conscious choice rather than
@@ -440,6 +484,43 @@ Only the infrastructure needed to talk to the simulated NAO and Webots
 (ROS 2 setup, `ros2_control`, NAO head/arm control, the Webots robot
 environment, the vision pipeline) gets selectively pulled into
 `embodiment/` here — none of the game-specific logic.
+
+## Embodiment plan (documented, not started)
+
+**Decided: not starting yet.** The cognitive pipeline isn't complete
+enough to close a perception–cognition–action loop: self-model, goals and
+planning don't exist, and the representation lab (needed for
+re-identification, see below) is next. Embodiment also deserves its own
+cycle, not a tail on a lab round. This section records the plan so it isn't
+re-derived later; it is not a spec.
+
+**What the embodiment/adapter side owns** (everything Eidolon's contracts
+already assume it does, and Eidolon never does):
+- detection, tracking (a stable `track_id`), and feature extraction;
+- **embeddings**, e.g. CLIP run on a GPU on the adapter side. Eidolon
+  consumes embeddings and never produces them, so it has no torch, CUDA or
+  model dependency; the model is swappable behind the same interface;
+- transforming positions into the `world_model`'s single configured frame
+  (`tf` in ROS 2); Eidolon does no transforms;
+- honest `Scene.coverage` claims (what was actually looked at), which is
+  what makes contradiction possible;
+- one consistent `observed_at` clock across the stream.
+
+**What Eidolon expects:** a stream of `eidolon.percepts.Scene`. No ROS 2,
+Webots, torch or CUDA import ever enters `src/eidolon/`.
+
+**Bridge:** ROS 2, with the Python cognitive core as `rclpy` nodes and the
+C++ vision/control from `spin_the_bottle` on the other side; message ↔
+dataclass conversion happens at that boundary. `Scene`s should stay
+serializable (e.g. JSON lines) so a real Webots run can be recorded and
+replayed against Eidolon without the simulator, which is also how real
+streams become test fixtures.
+
+**Entry criteria** (as decided, revisit when reached): a cognitive pipeline
+complete enough to close the loop — self-model, goals and planning — and
+the representation lab, so the robot can keep stable beliefs across
+occlusion. Actions and a predictor (state + action → next state) belong to
+that later cycle, not this document.
 
 ## Long-term vision
 
