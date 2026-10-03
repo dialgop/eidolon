@@ -37,6 +37,9 @@ tests/           tests, mirroring src/eidolon/
   `eidolon.percepts`).
 - `labs/world_model` — implemented (belief store: object permanence fed by
   `Scene`, decay, and contradiction by negative evidence).
+- `labs/representation` — implemented (cosine similarity over embeddings
+  supplied by the adapter, nearest-neighbour retrieval, and the recognition
+  hit / false-alarm trade-off).
 - Everything else — not started yet.
 
 See [`src/eidolon/labs/README.md`](src/eidolon/labs/README.md) for the

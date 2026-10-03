@@ -38,6 +38,8 @@ Early-stage experiments implement individual mechanisms in isolation, as
 - Predictive processing
 - Semantic memory *(added after the original roadmap; not yet in scope —
   see note below)*
+- Representation *(added after the original roadmap; implemented — see
+  note below)*
 
 Semantic memory (conceptual/categorical knowledge — "what a cup is", not
 "the cup I saw") wasn't in the original roadmap above but belongs on it: a
@@ -46,6 +48,13 @@ deliberately deferred, not forgotten — it needs a representation layer
 (embeddings) that doesn't exist yet, and needs temporal continuity (the
 world model) to have raw material to generalize from. See the world model's
 contract below for how these two will eventually connect.
+
+Representation (embeddings and similarity over them) was that missing
+prerequisite, and is now built. It unlocks semantic memory, similarity
+recall in episodic memory (`recall_by_similarity`), and re-identification in
+the world model, and it is what lets an embodied agent keep stable beliefs
+across occlusion. It consumes embeddings; it does not produce them (the
+adapter does). Those three follow-ups are each still their own round.
 
 ## Inter-lab interface contracts
 
@@ -386,12 +395,24 @@ is deferred until embodiment provides one; when it does,
 
 ### Shared base interface (e.g. a `CognitiveModule` protocol)
 
-Not defined yet, deliberately. With four labs built the common shape is
-starting to show (an explicit time step, plus a read-only view of state),
-but the labs advance time in three different ways (`tick()`, `encode()`,
-caller-supplied `observed_at`), which is exactly the kind of difference a
-premature protocol would paper over. Revisit once the clocks question is
-settled.
+**Decided: not yet. Reason: the clocks differ structurally.** This was
+originally "revisit when the shape is visible"; with four labs built it is
+now an explicit decision, not a deferral by default.
+
+The labs don't just use different clock *values*, they relate to time in
+different ways: `working_memory` advances an internal logical clock by
+exactly one per explicit `tick()`; `episodic_memory` has an internal counter
+that advances as a side effect of `encode()` and has no notion of elapsed
+time at all; `visual_attention` and `world_model` have no clock — time is an
+input carried by the data (`Scene.observed_at`) and can jump by any amount
+between calls, which is why `world_model` decays per elapsed unit while
+`working_memory` decays per tick. A shared `tick()`-shaped protocol would
+have to be false for at least two of the three, and the overlap that
+remains (a read-only view of state) is too thin to be worth abstracting.
+
+Nothing is implemented. What would reopen it: a single agent clock that
+every lab consumes (making a `step(now)`-shaped protocol truthful), or a
+cognitive core (`eidolon.core`) that needs to drive labs uniformly.
 
 ## Language split
 

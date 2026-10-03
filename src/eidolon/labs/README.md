@@ -49,5 +49,12 @@ A lab should:
   (`Scene.coverage`). See its README — in particular "Scene provides
   existence; working memory provides focus, not existence."
 
-Next up: the general, non-visual attention lab, once a second use makes its
-shape visible.
+- `representation/` — implemented. Cosine similarity over adapter-supplied
+  embeddings (`Embedding` lives in `eidolon.percepts`; Eidolon consumes
+  embeddings and never produces them), nearest-neighbour retrieval, and the
+  recognition hit / false-alarm trade-off. See its README.
+
+Follow-ups it unlocks, each its own round: similarity recall in episodic
+memory, re-identification in the world model, and semantic memory. The
+general, non-visual attention lab stays deferred: there is no second use
+case yet.
