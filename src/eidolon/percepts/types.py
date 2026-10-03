@@ -14,6 +14,41 @@ from typing import Mapping
 
 
 @dataclass(frozen=True)
+class Embedding:
+    """A point in a learned vector space, produced by the perception
+    adapter (e.g. CLIP run on a GPU) — Eidolon consumes embeddings, it never
+    produces them.
+
+    `space` names the model and version that produced `vector`. Two
+    embeddings are only comparable within one space: same-dimension vectors
+    from different models are unrelated coordinates, so a consumer comparing
+    across spaces must raise rather than return a meaningless number.
+    `vector` is stored as given (not normalized) and must be a tuple, like
+    the other contract types; a zero vector is rejected because cosine
+    similarity is undefined for it.
+    """
+
+    vector: tuple[float, ...]
+    space: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.vector, tuple):
+            raise TypeError("vector must be a tuple")
+        if not self.vector:
+            raise ValueError("vector must not be empty")
+        if not all(math.isfinite(x) for x in self.vector):
+            raise ValueError("vector components must be finite")
+        if not any(x != 0 for x in self.vector):
+            raise ValueError("vector must not be all zeros")
+        if not isinstance(self.space, str) or not self.space:
+            raise ValueError("space must be a non-empty string")
+
+    @property
+    def dim(self) -> int:
+        return len(self.vector)
+
+
+@dataclass(frozen=True)
 class PerceivedObject:
     """One object as reported by a perception adapter at one moment.
 
@@ -22,8 +57,11 @@ class PerceivedObject:
     *the same object*. Everything else is volatile observation data.
 
     `features` is flat name -> number, produced by the adapter (hue, size,
-    motion, ...). `position` is carried but unused by v0 attention; when
-    given, `frame` must name the coordinate frame it's expressed in.
+    motion, ...). `embedding` is a separate field, not one more feature: it
+    is a point in a learned space with its own semantics (see `Embedding`),
+    and it is what similarity and re-identification will use. `position` is
+    carried but unused by v0 attention; when given, `frame` must name the
+    coordinate frame it's expressed in.
     """
 
     track_id: str
@@ -34,6 +72,7 @@ class PerceivedObject:
     position: tuple[float, float, float] | None = field(default=None, compare=False)
     frame: str | None = field(default=None, compare=False)
     source: str | None = field(default=None, compare=False)
+    embedding: Embedding | None = field(default=None, compare=False)
 
     def __post_init__(self) -> None:
         if not isinstance(self.track_id, str) or not self.track_id:
@@ -42,6 +81,8 @@ class PerceivedObject:
             raise ValueError("confidence must be within [0, 1]")
         if self.position is not None and self.frame is None:
             raise ValueError("frame is required when position is given")
+        if self.embedding is not None and not isinstance(self.embedding, Embedding):
+            raise TypeError("embedding must be an Embedding (with a space), not a bare sequence")
         for name, value in self.features.items():
             if not math.isfinite(value):
                 raise ValueError(f"feature {name!r} must be finite")

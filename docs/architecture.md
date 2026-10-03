@@ -174,12 +174,22 @@ every import site was updated directly (`visual_attention`'s code, tests
 and demo), and the full test suite was re-run as the check for hidden
 coupling.
 
-- **Exposes:** `PerceivedObject`, `Scene`, `CoverageRegion`.
+- **Exposes:** `PerceivedObject`, `Scene`, `CoverageRegion`, `Embedding`.
 - **`PerceivedObject`** (frozen): `track_id` (required, non-empty),
   `observed_at: int`, and optional `label`, `confidence` in `[0, 1]`, flat
   `features: Mapping[str, float]` (read-only), `position` + `frame`
-  (`frame` required when `position` is given), `source`. **Equality and
-  hashing use `track_id` only.** `position` is unused by v0 attention.
+  (`frame` required when `position` is given), `source`, and `embedding`.
+  **Equality and hashing use `track_id` only** (the embedding takes no part).
+  `position` is unused by v0 attention.
+- **`Embedding`** (frozen): `vector: tuple[float, ...]` and `space: str`, plus
+  a `dim` property. A point in a learned space produced by the adapter (e.g.
+  CLIP on a GPU); Eidolon consumes embeddings and never produces them. `space`
+  names the model and version, and embeddings are only comparable within one
+  space, so a consumer comparing across spaces must raise. A list raises
+  `TypeError`; an empty vector, non-finite components, an all-zero vector
+  (cosine is undefined) or an empty `space` raise `ValueError`. It is a
+  separate `PerceivedObject` field, not a feature, because it has its own
+  semantics; a bare tuple there raises `TypeError`.
 - **`CoverageRegion`** (frozen): `center` (3-tuple), `radius` (`> 0`),
   `frame` (required, non-empty). A region of space an adapter claims to
   have observed — the basis for negative evidence (see `world_model`

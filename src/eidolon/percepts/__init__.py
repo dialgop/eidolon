@@ -1,3 +1,3 @@
-from eidolon.percepts.types import CoverageRegion, PerceivedObject, Scene
+from eidolon.percepts.types import CoverageRegion, Embedding, PerceivedObject, Scene
 
-__all__ = ["CoverageRegion", "PerceivedObject", "Scene"]
+__all__ = ["CoverageRegion", "Embedding", "PerceivedObject", "Scene"]
