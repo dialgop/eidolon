@@ -4,8 +4,9 @@
 
 An unbounded store of discrete episodes — `content` + an `occurred_at`
 timestamp (episodic memory's own logical clock) + required `context` and
-`provenance` dicts — with cued recall by content (exact-match) or by
-context/provenance (subset-match).
+`provenance` dicts + an optional `embedding` — with cued recall by content
+(exact-match), by context/provenance (subset-match), or by similarity
+(`recall_by_similarity`, ranked, via `eidolon.labs.representation`).
 
 Unlike `working_memory`, this lab is not self-sufficient: it doesn't decide
 what's worth remembering. It only stores what it's told to, via `encode()`.
@@ -73,23 +74,56 @@ a `working_memory.Item` and supplies `context`/`provenance` itself;
   cannot change what's stored (`TypeError` on the latter). A memory
   shouldn't be modifiable in place — modulo the shallow-copy limitation on
   nested values noted above.
+- **`embedding: Embedding | None = None` is optional, unlike `context`/
+  `provenance`.** Those two are required with no default to force callers
+  to be explicit about why an episode exists; `embedding` is just data that
+  may or may not be available (not every episode is consolidated from
+  something perceived), so a default makes sense here where it didn't
+  there. It's stored as given — `Embedding` is already immutable, nothing
+  to copy — and it's excluded from `Episode`'s equality (`compare=False`,
+  same reasoning as `PerceivedObject`: an episode's identity doesn't depend
+  on its embedding). One side effect worth knowing: `Episode` was already
+  unhashable (`context`/`provenance` are `MappingProxyType`, which isn't
+  hashable), so this changes nothing there — nothing needs to hash an
+  `Episode`; `recall_by_similarity`'s `Match.key` is opaque and never
+  hashed.
 - **`recall_by_context`/`recall_by_provenance` are subset matches, not
   equality.** An episode matches a cue if the cue's key/value pairs are a
   subset of the episode's — so a cue with one field matches episodes whose
   context/provenance has that field plus others, and `cue={}` matches
   everything. Equality-only matching would make these fields nearly
   useless for any context with more than one field.
-- **Recall order:** all `recall_by_*` methods return results in encoding
-  order (oldest first) by default; pass `newest_first=True` to reverse it.
-- **Retrieval is exact-match (for content) / subset-match (for
-  context/provenance) in v0**, per the two-phase roadmap in
-  `/docs/architecture.md`. Similarity-based recall (v1) is deferred until a
-  representation lab exists, and would likely be a `recall_by_similarity`
-  method added alongside these, not a replacement for them.
+- **Recall order:** the exact/subset `recall_by_*` methods (`content`,
+  `context`, `provenance`) return results in encoding order (oldest first)
+  by default; pass `newest_first=True` to reverse it. `recall_by_similarity`
+  is different — see below.
+- **v1 (similarity-based recall) is implemented: `recall_by_similarity`,
+  via `eidolon.labs.representation`.** This completes the two-phase roadmap
+  from `/docs/architecture.md` (v0 exact/subset-match, v1 similarity,
+  added alongside the existing methods, not replacing them). `episodic_memory`
+  now depends on `representation`, alongside its existing dependency on
+  `working_memory` (consolidation).
+  - `recall_by_similarity(cue: Embedding, k, min_similarity=None, *,
+    newest_first=False) -> list[Match]` — imports `Match`/`most_similar`
+    from `representation` rather than reimplementing ranking, `k`,
+    `min_similarity` or cross-space validation. `cue` is an `Embedding`
+    directly, not an `Episode` — simpler and keeps the two labs decoupled.
+    `Match.key` is the matched `Episode`.
+  - Episodes with no `embedding` are skipped, not an error — not every
+    episode has one. A candidate from a different space (or dimension)
+    raises `ValueError`, same as `representation`.
+  - **This method ranks; the others filter.** Its default order is
+    therefore similarity (most similar first), not encoding time — applying
+    "oldest first" as the primary order would defeat the reason it exists.
+    Ties (equally similar episodes) are broken by encoding order, and
+    `newest_first` reverses *only that tie-break*, not the overall ranking:
+    a more similar, older episode still outranks a less similar, newer one
+    regardless of `newest_first`. See `demo.py` for both tie-break
+    directions side by side.
 - **Deliberately out of scope for v0:** `action`, `outcome`, `keys`
-  (multi-field cue indexing), `embedding`. These aren't stubbed out as
-  unused fields — they're not part of `Episode` at all yet, added only when
-  a concrete lab needs them.
+  (multi-field cue indexing). These aren't stubbed out as unused fields —
+  they're not part of `Episode` at all yet, added only when a concrete lab
+  needs them.
 
 ## Question this experiment asks
 
@@ -108,7 +142,10 @@ python -m eidolon.labs.episodic_memory.demo
 
 ## Files
 
-- `store.py` — `EpisodicMemory` and `Episode`.
+- `store.py` — `EpisodicMemory` and `Episode`; imports `Match`/`most_similar`
+  from `eidolon.labs.representation` for `recall_by_similarity`.
 - `demo.py` — consolidates both capacity-evicted and decay-forgotten items
-  from a `WorkingMemory`, then recalls by content and by provenance.
-- `tests/labs/episodic_memory/` — unit tests for the same behaviors.
+  from a `WorkingMemory`, then recalls by content and by provenance, then a
+  `recall_by_similarity` scenario with a tie broken both ways.
+- `tests/labs/episodic_memory/` — unit tests for the same behaviors,
+  including `test_recall_by_similarity.py`.

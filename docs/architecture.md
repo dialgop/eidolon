@@ -50,11 +50,12 @@ world model) to have raw material to generalize from. See the world model's
 contract below for how these two will eventually connect.
 
 Representation (embeddings and similarity over them) was that missing
-prerequisite, and is now built. It unlocks semantic memory, similarity
-recall in episodic memory (`recall_by_similarity`), and re-identification in
-the world model, and it is what lets an embodied agent keep stable beliefs
-across occlusion. It consumes embeddings; it does not produce them (the
-adapter does). Those three follow-ups are each still their own round.
+prerequisite, and is now built. It unlocks semantic memory,
+re-identification in the world model, and it is what lets an embodied agent
+keep stable beliefs across occlusion. It consumes embeddings; it does not
+produce them (the adapter does). The first follow-up,
+`episodic_memory.recall_by_similarity`, is now also built (see that lab's
+contract below); the other two are each still their own round.
 
 ## Inter-lab interface contracts
 
@@ -100,13 +101,23 @@ on what." Update it whenever a lab's public surface changes.
 ### `eidolon.labs.episodic_memory`
 
 - **Exposes:** `EpisodicMemory()` and `Episode(content, occurred_at,
-  context, provenance)` (frozen; `context`/`provenance` are
-  `MappingProxyType`, read-only).
-- **Operations:** `encode(content, context, provenance) -> Episode`,
-  `recall_by_content(cue, *, newest_first=False) -> list[Episode]`,
-  `recall_by_context(cue, *, newest_first=False) -> list[Episode]`,
-  `recall_by_provenance(cue, *, newest_first=False) -> list[Episode]`,
+  context, provenance, embedding)` (frozen; `context`/`provenance` are
+  `MappingProxyType`, read-only; `embedding` is `Embedding | None`,
+  excluded from equality). `Episode` is not hashable (`context`/`provenance`
+  are `MappingProxyType`) — not a problem, nothing needs to hash one;
+  `recall_by_similarity`'s `Match.key` is opaque and never hashed.
+- **Operations:** `encode(content, context, provenance, embedding=None) ->
+  Episode`, `recall_by_content(cue, *, newest_first=False) ->
+  list[Episode]`, `recall_by_context(cue, *, newest_first=False) ->
+  list[Episode]`, `recall_by_provenance(cue, *, newest_first=False) ->
+  list[Episode]`, `recall_by_similarity(cue: Embedding, k,
+  min_similarity=None, *, newest_first=False) -> list[Match]`,
   `.episodes -> list[Episode]` (read-only snapshot), `len(em)`.
+- **New dependency: `episodic_memory → representation`.**
+  `recall_by_similarity` imports `Match`/`most_similar` from
+  `eidolon.labs.representation` rather than reimplementing ranking, `k`,
+  `min_similarity` or cross-space validation — alongside the lab's existing
+  `working_memory → episodic_memory` dependency (consolidation).
 - **Ingestion path: consolidates from `working_memory`, unconditionally.**
   `EpisodicMemory` never pulls from working memory itself — the caller
   (currently the lab's own `demo.py`) is the consolidation point: it calls
@@ -154,19 +165,25 @@ on what." Update it whenever a lab's public surface changes.
   `recall_by_context`/`recall_by_provenance` are **subset**-match — a cue
   matches if its key/value pairs are a subset of the episode's field, so
   `cue={}` matches everything and multi-field contexts aren't reduced to
-  exact-equality-or-nothing. This is the two-phase roadmap decided for this
-  lab: **v0 exact/subset matching now, v1 similarity later**, once a
-  representation lab (embeddings — not built) exists to feed it. Adding v1
-  means a new `recall_by_similarity` method alongside these, not a
-  replacement — but note an arbitrary `content`/cue doesn't carry a
-  similarity-computable representation on its own; v1 will need a separate
-  representation (e.g. an `embedding` field), not something derived from
-  `content` by changing the comparison.
-- **Recall order:** oldest-first (encoding order) by default; every
-  `recall_by_*` takes `newest_first=True` to reverse it.
+  exact-equality-or-nothing. **`recall_by_similarity` (v1, implemented)**
+  completes the two-phase roadmap decided for this lab: `cue` is an
+  `Embedding` directly (not an `Episode` — simpler, keeps the labs
+  decoupled); episodes with no `embedding` are skipped, not an error; a
+  candidate from a different space or dimension raises `ValueError` (via
+  `most_similar`); `k` is a maximum and `min_similarity` is inclusive, both
+  passed straight through.
+- **Recall order — one exception.** The exact/subset `recall_by_*` methods
+  return oldest-first (encoding order) by default; `newest_first=True`
+  reverses it. **`recall_by_similarity` ranks instead of filtering**, so its
+  default order is similarity (most similar first), not encoding time —
+  "oldest first" as the primary order would defeat the method's purpose.
+  Ties (equal similarity) are broken by encoding order; `newest_first`
+  there reverses only that tie-break, never the ranking itself (a more
+  similar, older episode still outranks a less similar, newer one either
+  way).
 - **Deliberately out of scope for v0:** `action`, `outcome`, `keys`
-  (multi-field cue indexing), `embedding`. Not stubbed as unused fields —
-  simply not part of `Episode` yet.
+  (multi-field cue indexing). Not stubbed as unused fields — simply not
+  part of `Episode` yet.
 
 ### `eidolon.percepts`
 
@@ -372,8 +389,7 @@ needs no torch, CUDA or GPU; tests use synthetic vectors.
 - **Sources:** framing inspired by Shepard (1987), Nosofsky (1986), Rosch &
   Mervis (1975) and, for the hit / false-alarm vocabulary, Green & Swets
   (1966), none of which is implemented; details in the lab's README.
-- **Deferred, each its own round:** `Episode.embedding` and
-  `recall_by_similarity` in `episodic_memory`; re-identification in
+- **Deferred, each its own round:** re-identification in
   `world_model` (which revises its "identity is the adapter's job"
   limitation); semantic memory's prototypes; a real-CLIP fixture recorded
   once on the GPU machine and committed; Euclidean distance.

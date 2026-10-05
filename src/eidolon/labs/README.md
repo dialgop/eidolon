@@ -35,8 +35,10 @@ A lab should:
   rehearsal. See its README for details.
 - `episodic_memory/` — implemented. Consolidates everything that leaves
   `working_memory` (capacity eviction and decay forgetting alike) into an
-  unbounded store with exact-match cued recall. See its README for details,
-  and `/docs/architecture.md` for how the two labs' interface is defined.
+  unbounded store with exact/subset-match cued recall, plus
+  `recall_by_similarity` (ranked, via `representation`). See its README for
+  details, and `/docs/architecture.md` for how the labs' interfaces are
+  defined.
 - `visual_attention/` — implemented. Object-level bottom-up/top-down
   selection blended by a factor `t`, with inhibition of return. Its input
   contract (`PerceivedObject`, `Scene`) moved out to `eidolon.percepts`
@@ -54,7 +56,7 @@ A lab should:
   embeddings and never produces them), nearest-neighbour retrieval, and the
   recognition hit / false-alarm trade-off. See its README.
 
-Follow-ups it unlocks, each its own round: similarity recall in episodic
-memory, re-identification in the world model, and semantic memory. The
-general, non-visual attention lab stays deferred: there is no second use
-case yet.
+Follow-ups it unlocks: similarity recall in episodic memory is now also
+built (above); re-identification in the world model and semantic memory are
+each still their own round. The general, non-visual attention lab stays
+deferred: there is no second use case yet.
