@@ -50,12 +50,12 @@ world model) to have raw material to generalize from. See the world model's
 contract below for how these two will eventually connect.
 
 Representation (embeddings and similarity over them) was that missing
-prerequisite, and is now built. It unlocks semantic memory,
-re-identification in the world model, and it is what lets an embodied agent
-keep stable beliefs across occlusion. It consumes embeddings; it does not
-produce them (the adapter does). The first follow-up,
-`episodic_memory.recall_by_similarity`, is now also built (see that lab's
-contract below); the other two are each still their own round.
+prerequisite, and is now built. It unlocks semantic memory, and it is what
+lets an embodied agent keep stable beliefs across occlusion. It consumes
+embeddings; it does not produce them (the adapter does). Two follow-ups are
+now also built — `episodic_memory.recall_by_similarity` and
+`world_model`'s re-identification (see their contracts below); semantic
+memory is still its own round.
 
 ## Inter-lab interface contracts
 
@@ -303,17 +303,27 @@ v0 is a **belief store**, not a **predictor** (state + action → next
 state, à la Ha & Schmidhuber); a predictor needs actions, which don't exist
 yet, and is deferred.
 
-- **Exposes:** `WorldModel`, `Belief`, `UpdateReport`.
+- **Exposes:** `WorldModel`, `Belief`, `UpdateReport`, `Reidentification`.
 - **`Belief`** (frozen, like `Episode` — not mutated in place like working
   memory's `Item`): `percept: PerceivedObject`, `confidence` in `[0, 1]`,
   `last_observed_at: int`, plus `track_id`/`label` properties reading
   through to `percept`, and `confidence_at(observed_at, decay_rate)` — a
   pure computation, reads nothing stored, mutates nothing.
-- **`UpdateReport`** (frozen): `new`, `refreshed`, `contradicted`,
-  `forgotten`, each `tuple[Belief, ...]` — grouped like `WorkingMemory.tick()`'s
-  return rather than left for the caller to diff two snapshots.
-- **`WorldModel(frame, decay_rate=0.1, forget_threshold=0.05)`:**
+- **`UpdateReport`** (frozen): `new`, `refreshed`, `reidentified`,
+  `contradicted`, `forgotten` — `tuple[Belief, ...]` except `reidentified`,
+  which is `tuple[Reidentification, ...]` — grouped like
+  `WorkingMemory.tick()`'s return rather than left for the caller to diff
+  two snapshots.
+- **`Reidentification`** (frozen): `new_track_id`, `canonical_track_id`,
+  `similarity`. Kept as its own `UpdateReport` field, not folded into
+  `refreshed` — a different claim (inferred identity across a `track_id`
+  change), the same reasoning that keeps `contradicted` separate from
+  `forgotten`.
+- **`WorldModel(frame, decay_rate=0.1, forget_threshold=0.05,
+  reidentify_threshold=None, reidentify_max_distance=None)`:**
   `update(scene) -> UpdateReport`, `beliefs`, `get(track_id)`, `len()`.
+  `get()` resolves re-identification aliases: any `track_id` ever folded
+  into a belief, original or re-identified, returns that same `Belief`.
 - **Observation semantics: replace, not combine** — the same rule as
   `working_memory.add()`. An object present in `scene.objects` creates a
   belief (`new`) or replaces an existing one's `percept`/`confidence`/
@@ -347,9 +357,72 @@ yet, and is deferred.
   or coverage region's `frame` mismatching it raises — validated in a pass
   before anything is mutated, so a rejected `update()` call changes
   nothing. `observed_at` must not decrease between calls.
-- **Deferred:** motion model for unobserved beliefs (they don't move),
-  re-identification after occlusion (a new `track_id` is a new belief),
-  a predictor, and any read from working memory or semantic memory.
+- **Re-identification: one specific failure mode, not general identity
+  resolution.** Still "a new `track_id` is a new belief" by default.
+  `reidentify_threshold`/`reidentify_max_distance` (required together, off
+  unless both given) let an otherwise-unrecognized object be folded into a
+  currently unobserved belief instead, when a single best match clears
+  both an appearance gate (`most_similar`, imported from
+  `representation` — the lab's second consumer, after
+  `episodic_memory.recall_by_similarity`) and a position gate
+  (`distance <= reidentify_max_distance`). Ties among equally similar
+  candidates go to whichever belief was created first (same insertion-order
+  convention as elsewhere) — a documented limitation, not detected: two
+  indistinguishable, simultaneously unobserved objects can be
+  misattributed. A belief claimed by one re-identified object in a call is
+  removed from the pool for the rest of that call, and a belief already
+  refreshed by an exact `track_id` match can't also be re-identified onto.
+  `get(track_id)` resolves any id ever folded into a belief (original or
+  re-identified) to the same `Belief`, always in one hop — `_beliefs` keys
+  never change, so an alias recorded for a third id points straight at the
+  root, never at an intermediate alias. The dict key a belief is first
+  created under is stable and never itself exposed, but `Belief.track_id`
+  reads the most recently observed percept, so it can differ from whichever
+  id was used to look the belief up — deliberate, not patched with a
+  separate canonical-id field.
+- **`update()`'s three-pass order (refresh → contradiction/forgetting →
+  re-identification) is load-bearing, not an implementation detail — both
+  the time gate and a real bug fix depend on it.** A belief that's gone
+  this call, by either kind of evidence, must not be offered as a
+  re-identification candidate:
+  - *Time:* rather than a separate staleness parameter or a per-candidate
+    check, re-identification simply runs after the contradiction/
+    forgetting pass has already deleted anything with
+    `confidence_at(observed_at, decay_rate) < forget_threshold` — even
+    within this same call.
+  - *Contradiction outranks re-identification*, the same way it already
+    outranks passive forgetting: a belief with explicit negative evidence
+    against it can't be re-identified onto by a new, appearance-matching
+    object in the same scene. This was a real bug caught mid-round (a
+    contradicted belief could still be silently re-identified onto) when a
+    reviewer asked whether the staleness regression test would actually
+    fail under pass reordering — it wouldn't have, which is what surfaced
+    the gap.
+  - **Why there's no separate confidence check in the re-identification
+    code, and the risk if that changes:** the contradiction/forgetting pass
+    runs to completion before re-identification starts, using the one
+    `scene.observed_at` value for the whole call and the same decay
+    formula, so a per-candidate check could never fire against anything
+    re-identification would see — provable from the code, not just
+    empirically true. **If a future refactor removes, skips, or reorders
+    that pass relative to re-identification, this guarantee breaks
+    silently** and the explicit check would need to come back; two
+    regression tests fail under such a reordering today (see the lab's
+    README), but the invariant itself lives in pass order, not in a line of
+    code that states it.
+- **Sources (re-identification): framing inspired by** Wojke, Bewley &
+  Paulus (2017, DeepSORT — appearance + motion association across
+  occlusion; we use a plain distance gate, not a motion model) and Fields
+  (2013, verified against the full text — an earlier draft of this note
+  attributed a "causal continuator" phrase, a "BIC model" and a
+  hippocampal-reactivation claim to this paper that are not actually in it;
+  what it actually argues is that re-identification is solved by heuristic
+  best guesses combining featural similarity with the plausibility of an
+  object's causal history, not a principled three-way split). Fields
+  (2012a) is noted as related, unread, work in the lab's README — no claims
+  attributed to it. Full detail in the lab's own "Sources" section.
+- **Deferred:** motion model for unobserved beliefs (they don't move), a
+  predictor, and any read from working memory or semantic memory.
 
 ### `eidolon.labs.representation`
 
@@ -385,14 +458,14 @@ needs no torch, CUDA or GPU; tests use synthetic vectors.
 - **Similarity is not identity.** Two different objects can share an
   embedding (two identical mugs). Re-identification needs appearance,
   position and time together; this lab supplies the appearance evidence
-  only.
+  only — `world_model`'s re-identification is the consumer that combines
+  it with position and time (see that lab's contract above).
 - **Sources:** framing inspired by Shepard (1987), Nosofsky (1986), Rosch &
   Mervis (1975) and, for the hit / false-alarm vocabulary, Green & Swets
   (1966), none of which is implemented; details in the lab's README.
-- **Deferred, each its own round:** re-identification in
-  `world_model` (which revises its "identity is the adapter's job"
-  limitation); semantic memory's prototypes; a real-CLIP fixture recorded
-  once on the GPU machine and committed; Euclidean distance.
+- **Deferred, each its own round:** semantic memory's prototypes; a
+  real-CLIP fixture recorded once on the GPU machine and committed;
+  Euclidean distance.
 
 ### Clocks
 

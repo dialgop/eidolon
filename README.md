@@ -37,7 +37,8 @@ tests/           tests, mirroring src/eidolon/
   attention; its `PerceivedObject`/`Scene` contract now lives in
   `eidolon.percepts`).
 - `labs/world_model` — implemented (belief store: object permanence fed by
-  `Scene`, decay, and contradiction by negative evidence).
+  `Scene`, decay, contradiction by negative evidence, and re-identification
+  across a tracker id change via `labs/representation`).
 - `labs/representation` — implemented (cosine similarity over embeddings
   supplied by the adapter, nearest-neighbour retrieval, and the recognition
   hit / false-alarm trade-off).

@@ -47,16 +47,18 @@ A lab should:
 - `world_model/` — implemented. A belief store: persists object existence
   and last known state independent of attention, fed by `Scene` directly
   (not by `working_memory`). Decays and can be forgotten when unobserved,
-  or contradicted immediately by explicit negative evidence
-  (`Scene.coverage`). See its README — in particular "Scene provides
-  existence; working memory provides focus, not existence."
+  contradicted immediately by explicit negative evidence
+  (`Scene.coverage`), or re-identified across a tracker id change by
+  appearance + position + staleness together (via `representation`). See
+  its README — in particular "Scene provides existence; working memory
+  provides focus, not existence."
 
 - `representation/` — implemented. Cosine similarity over adapter-supplied
   embeddings (`Embedding` lives in `eidolon.percepts`; Eidolon consumes
   embeddings and never produces them), nearest-neighbour retrieval, and the
   recognition hit / false-alarm trade-off. See its README.
 
-Follow-ups it unlocks: similarity recall in episodic memory is now also
-built (above); re-identification in the world model and semantic memory are
-each still their own round. The general, non-visual attention lab stays
+Follow-ups it unlocks: similarity recall in episodic memory and
+re-identification in the world model are now also built (above); semantic
+memory is still its own round. The general, non-visual attention lab stays
 deferred: there is no second use case yet.
