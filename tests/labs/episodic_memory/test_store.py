@@ -1,6 +1,14 @@
+from types import MappingProxyType
+
 import pytest
 
 from eidolon.labs.episodic_memory import EpisodicMemory
+from eidolon.labs.episodic_memory.store import Episode
+from eidolon.percepts import Embedding
+
+
+def emb(*vector, space="test-space"):
+    return Embedding(vector=tuple(float(v) for v in vector), space=space)
 
 
 def test_encode_stores_episode_with_given_fields():
@@ -60,6 +68,40 @@ def test_episode_itself_is_frozen():
     episode = em.encode(content="keys", context={}, provenance={})
     with pytest.raises(Exception):
         episode.content = "wallet"
+
+
+def test_episode_embedding_defaults_to_none():
+    em = EpisodicMemory()
+    episode = em.encode(content="keys", context={}, provenance={})
+    assert episode.embedding is None
+
+
+def test_episode_stores_the_given_embedding():
+    em = EpisodicMemory()
+    e = emb(1.0, 2.0, 3.0)
+    episode = em.encode(content="keys", context={}, provenance={}, embedding=e)
+    assert episode.embedding is e
+
+
+def test_embedding_does_not_take_part_in_episode_equality():
+    """An episode's identity doesn't depend on its embedding: two episodes
+    equal in every other field are equal regardless of embedding."""
+    shared = dict(content="keys", occurred_at=1, context=MappingProxyType({}), provenance=MappingProxyType({}))
+    a = Episode(**shared, embedding=emb(1.0, 0.0))
+    b = Episode(**shared, embedding=emb(0.0, 1.0))
+    c = Episode(**shared, embedding=None)
+    assert a == b == c
+
+
+def test_episode_is_not_hashable():
+    """Known limitation, not a goal: context/provenance are MappingProxyType,
+    which isn't hashable, so Episode isn't either. This is fine because
+    nothing needs to hash an Episode — recall_by_similarity's Match.key is
+    opaque and is never hashed."""
+    em = EpisodicMemory()
+    episode = em.encode(content="keys", context={}, provenance={})
+    with pytest.raises(TypeError):
+        hash(episode)
 
 
 def test_recall_by_content_exact_match():

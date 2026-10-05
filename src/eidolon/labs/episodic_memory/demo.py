@@ -12,10 +12,16 @@ receives wall-clock time — this script extracts plain fields (`content`)
 and supplies `provenance` (why the episode was stored); `context` stays
 `{}` in v0, since there's no attention/goals yet to produce real episodic
 context, and `occurred_at` is stamped by episodic memory's own clock.
+
+A second scenario shows `recall_by_similarity`: it ranks, it doesn't filter,
+so unlike the other `recall_by_*` methods its default order is similarity,
+not encoding time — `newest_first` only reverses the tie-break between
+equally similar episodes, shown here both ways.
 """
 
 from eidolon.labs.episodic_memory import EpisodicMemory
 from eidolon.labs.working_memory import WorkingMemory
+from eidolon.percepts import Embedding
 
 
 def consolidate(em: EpisodicMemory, content: object, reason: str) -> None:
@@ -44,6 +50,22 @@ def main() -> None:
         em.recall_by_provenance({"reason": "decay_forgotten"}, newest_first=True),
     )
     print(f"recall_by_context({{}}) — empty cue is a subset of everything: {len(em.recall_by_context({}))} results")
+
+    print("\n--- recall_by_similarity: ranks, doesn't filter ---")
+    em2 = EpisodicMemory()
+    cup_shaped = Embedding(vector=(1.0, 0.1), space="demo-space")
+    em2.encode(content="mug", context={}, provenance={}, embedding=cup_shaped)
+    em2.encode(content="identical-looking mug", context={}, provenance={}, embedding=cup_shaped)
+    em2.encode(content="plate", context={}, provenance={}, embedding=Embedding(vector=(0.1, 1.0), space="demo-space"))
+    em2.encode(content="no embedding at all", context={}, provenance={})
+
+    query = Embedding(vector=(1.0, 0.0), space="demo-space")
+    print("oldest-first tie-break (default):")
+    for match in em2.recall_by_similarity(query, k=3):
+        print(f"  {match.key.content!r}: similarity={match.similarity:.3f}")
+    print("newest-first tie-break (reverses only the tie, not the ranking):")
+    for match in em2.recall_by_similarity(query, k=3, newest_first=True):
+        print(f"  {match.key.content!r}: similarity={match.similarity:.3f}")
 
 
 if __name__ == "__main__":

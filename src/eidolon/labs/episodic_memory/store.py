@@ -7,6 +7,9 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any
 
+from eidolon.labs.representation import Match, most_similar
+from eidolon.percepts import Embedding
+
 
 @dataclass(frozen=True)
 class Episode:
@@ -29,6 +32,7 @@ class Episode:
     occurred_at: int
     context: MappingProxyType
     provenance: MappingProxyType
+    embedding: Embedding | None = field(default=None, compare=False)
 
 
 @dataclass
@@ -48,8 +52,15 @@ class EpisodicMemory:
         content: Any,
         context: dict[str, Any],
         provenance: dict[str, Any],
+        embedding: Embedding | None = None,
     ) -> Episode:
         """Store an episode.
+
+        `embedding` is optional, unlike `context`/`provenance`: it's data
+        that may or may not be available (not every episode is consolidated
+        from something perceived), not a value callers must be explicit
+        about. Stored as given — `Embedding` is already immutable, so there
+        is nothing to copy.
 
         `occurred_at` is stamped from episodic memory's own logical clock
         (advanced once per `encode()` call) — not wall-clock time, and not
@@ -84,6 +95,7 @@ class EpisodicMemory:
             occurred_at=self._clock,
             context=MappingProxyType(dict(context)),
             provenance=MappingProxyType(dict(provenance)),
+            embedding=embedding,
         )
         self._episodes.append(episode)
         return episode
@@ -119,3 +131,29 @@ class EpisodicMemory:
     def _recall_by_subset(self, cue: dict[str, Any], field_name: str, newest_first: bool) -> list[Episode]:
         results = [e for e in self._episodes if cue.items() <= getattr(e, field_name).items()]
         return list(reversed(results)) if newest_first else results
+
+    def recall_by_similarity(
+        self,
+        cue: Embedding,
+        k: int,
+        min_similarity: float | None = None,
+        *,
+        newest_first: bool = False,
+    ) -> list[Match]:
+        """Episodes ranked by similarity to `cue`, most similar first —
+        unlike the exact/subset `recall_by_*` methods, this one ranks
+        rather than filters, so "oldest first" is not the default order
+        here: `newest_first` only reverses the *tie-break* among equally
+        similar episodes (encoding order by default), not the ranking
+        itself.
+
+        Episodes with no `embedding` are skipped, not an error — not every
+        episode has one. A candidate `embedding` from a different space (or
+        dimension) than `cue` raises `ValueError`, via `most_similar`, which
+        also governs `k` (a maximum) and `min_similarity` (inclusive); see
+        `eidolon.labs.representation` for those semantics. `Match.key` is
+        the `Episode`.
+        """
+        episodes = reversed(self._episodes) if newest_first else self._episodes
+        candidates = ((episode, episode.embedding) for episode in episodes if episode.embedding is not None)
+        return most_similar(cue, candidates, k, min_similarity)
