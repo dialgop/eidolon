@@ -36,26 +36,34 @@ Early-stage experiments implement individual mechanisms in isolation, as
 - Uncertainty
 - Global Workspace
 - Predictive processing
-- Semantic memory *(added after the original roadmap; not yet in scope —
-  see note below)*
+- Semantic memory *(added after the original roadmap; implemented — see
+  note below)*
 - Representation *(added after the original roadmap; implemented — see
   note below)*
 
 Semantic memory (conceptual/categorical knowledge — "what a cup is", not
 "the cup I saw") wasn't in the original roadmap above but belongs on it: a
-belief store gives an object identity and persistence, not meaning. It's
-deliberately deferred, not forgotten — it needs a representation layer
-(embeddings) that doesn't exist yet, and needs temporal continuity (the
-world model) to have raw material to generalize from. See the world model's
-contract below for how these two will eventually connect.
+belief store gives an object identity and persistence, not meaning. It was
+deliberately deferred, not forgotten, until a representation layer
+(embeddings) existed.
+
+**A note on an earlier version of this paragraph:** it said semantic memory
+"needs temporal continuity (the world model) to have raw material to
+generalize from," which reads like a claim that semantic memory feeds from
+`world_model`. It doesn't (see `semantic_memory`'s contract below) — that
+line was about a *prerequisite*, not a feed path: re-identification is what
+makes repeated sightings of the same real object count reliably as repeated
+evidence, not a data source for category learning. `episodic_memory` is the
+only store that accumulates many distinct exemplars over time, which is
+what Nosofsky's exemplar-sum classification and Rosch's prototypes actually
+need — so that's what it's fed from, the same `working_memory →
+episodic_memory` pattern one level further along.
 
 Representation (embeddings and similarity over them) was that missing
-prerequisite, and is now built. It unlocks semantic memory, and it is what
-lets an embodied agent keep stable beliefs across occlusion. It consumes
-embeddings; it does not produce them (the adapter does). Two follow-ups are
-now also built — `episodic_memory.recall_by_similarity` and
-`world_model`'s re-identification (see their contracts below); semantic
-memory is still its own round.
+prerequisite, and is now built. It consumes embeddings; it does not produce
+them (the adapter does). All three follow-ups it unlocked are now also
+built: `episodic_memory.recall_by_similarity`, `world_model`'s
+re-identification, and `semantic_memory` (see their contracts below).
 
 ## Inter-lab interface contracts
 
@@ -291,10 +299,11 @@ takes a `Scene` directly, never `working_memory`: working memory holds
 ~4 attended items and forgets on its own rehearsal-driven schedule, so
 feeding beliefs from it would conflate "not currently attended" with "not
 believed to exist" and shrink object permanence to attention span. When
-focus/interpretation signals from working memory or semantic memory are
-integrated (deferred; semantic memory doesn't exist yet), they modulate an
-*existing* belief's confidence or interpretation — never create or delete
-one. `WorldModel` does not write to `episodic_memory` either; consolidation
+focus/interpretation signals from working memory or `semantic_memory`
+(exists now, but no such integration is built — still deferred) are
+integrated, they modulate an *existing* belief's confidence or
+interpretation — never create or delete one. `WorldModel` does not write to
+`episodic_memory` either; consolidation
 stays `working_memory → episodic_memory`, unchanged. This makes
 `world_model` a third, independent store with its own dynamics, not a
 derivative of the other two.
@@ -424,6 +433,81 @@ yet, and is deferred.
 - **Deferred:** motion model for unobserved beliefs (they don't move), a
   predictor, and any read from working memory or semantic memory.
 
+### `eidolon.labs.semantic_memory`
+
+Category learning and classification over adapter-supplied embeddings:
+Nosofsky's (1986) Generalized Context Model, not nearest-neighbor or
+nearest-centroid. Where earlier labs cited Shepard/Nosofsky/Rosch as
+"framing inspired by," this lab implements their actual equations
+(Equations 2–5 for Nosofsky, verified against the extracted PDF text), with
+explicit, documented adaptations. Full derivations and verbatim equations
+are in the lab's own README; this entry covers only the contract.
+
+```text
+working_memory → episodic_memory → semantic_memory
+```
+
+The same consolidation pattern one level further along: the caller
+orchestrates it (currently `semantic_memory`'s own `demo.py`), calling
+`learn(label, embedding)` per episode that has an embedding.
+
+- **Exposes:** `SemanticMemory`, `ConceptMatch`.
+- **`ConceptMatch`** (frozen): `label: str`, `probability: float` — **not**
+  `representation.Match`: a GCM response is a probability normalized across
+  every known label, not a raw cosine similarity, so reusing `Match` would
+  conflate two different quantities under one field name.
+- **`SemanticMemory(space, sensitivity)`:** both required, no defaults.
+  `space` is fixed per instance and validated against every call, like
+  `WorldModel.frame`. `sensitivity` has no value derivable from either
+  source paper — it doesn't appear in their equations; it's needed only
+  because we lack Nosofsky's multidimensional-scaling fit (see below) — so
+  a default would invite using it unexamined, the same reasoning that kept
+  `episodic_memory`'s `context`/`provenance` required.
+- **Operations:** `learn(label, embedding) -> None` (new label creates a
+  category; existing label adds an exemplar; unbounded — every exemplar is
+  kept, nothing is averaged away during learning), `classify(embedding,
+  min_probability=None) -> str | None`, `similar_concepts(embedding, k) ->
+  list[ConceptMatch]`, `prototype(label) -> Embedding | None`, `labels`,
+  `exemplar_count(label)`, `len()` (distinct labels, not total exemplars —
+  exemplars are a concept's internal structure, not a separate top-level
+  unit).
+- **Classification is Nosofsky's Equation 5, a Luce choice rule**, not
+  nearest-anything: `P(Rⱼ|Sᵢ) = [bⱼ·Σ_{k∈Cⱼ}η_ik] / [Σ_K bₖ·Σ_{k∈Cₖ}η_ik]` —
+  summed similarity to *every* exemplar of a category, normalized against
+  the same sum across *every known category*. v0 fixes the category bias
+  bⱼ uniform (cancels in the ratio) rather than expose it as a tunable.
+- **η comes from Shepard (Equations 2, 4b), expressed via cosine, not
+  implemented as literally stated.** Nosofsky's η = e^(−d²) uses a distance
+  `d` from a Minkowski metric over multidimensional-scaling-fitted
+  coordinates calibrated to his specific stimuli; we have raw, opaque
+  embedding vectors with no such fit. Adaptation, reusing `d² = 2(1−cosine)`
+  for unit vectors (the same identity `representation`'s README uses to
+  justify dropping Euclidean as redundant with cosine):
+  `η(a,b) = exp(-sensitivity * (1 - similarity(a, b)))`, with `similarity`
+  imported from `eidolon.labs.representation`, not reimplemented.
+- **`prototype` (Rosch) and `classify`/`similar_concepts` (Nosofsky) are
+  deliberately different mechanisms, not the same computation under two
+  names.** Prototype theory and exemplar theory are historically competing
+  accounts of categorization; `prototype(label)` returns the flat,
+  re-normalized centroid of a label's exemplars and plays no role in
+  classification (tested: calling it never changes what `classify` returns).
+- **`min_probability` is a rejection threshold on `classify`'s winner, not
+  a candidate filter.** The winner is computed exactly as
+  `similar_concepts` would rank it; the floor only decides whether to
+  report it or return `None` — it can never change which label would have
+  won. This is also why `similar_concepts` has no equivalent filter
+  parameter of its own: filtering individual matches on an
+  already-cross-label-normalized quantity doesn't have as clean a meaning
+  as filtering raw cosine similarity does elsewhere.
+- **Unbounded exemplar storage is faithful to Nosofsky, not a convenience
+  default — and it has a real cost.** `classify`/`similar_concepts` are
+  O(total exemplars stored) per call, every exemplar of every label
+  compared against the query every time. Known v0 limitation; v1 would need
+  incremental or approximate structures to scale past a small pool.
+- **v0 is supervised** (labels from `PerceivedObject.label`, via the glue
+  code — `SemanticMemory` itself imports neither `PerceivedObject` nor
+  `Episode`); unsupervised clustering is v1, not started.
+
 ### `eidolon.labs.representation`
 
 Similarity over adapter-supplied embeddings. It consumes `Embedding`s (from
@@ -462,10 +546,13 @@ needs no torch, CUDA or GPU; tests use synthetic vectors.
   it with position and time (see that lab's contract above).
 - **Sources:** framing inspired by Shepard (1987), Nosofsky (1986), Rosch &
   Mervis (1975) and, for the hit / false-alarm vocabulary, Green & Swets
-  (1966), none of which is implemented; details in the lab's README.
-- **Deferred, each its own round:** semantic memory's prototypes; a
-  real-CLIP fixture recorded once on the GPU machine and committed;
-  Euclidean distance.
+  (1966) — none of which *this lab itself* implements (it stays at raw
+  cosine thresholds). `semantic_memory` is what actually implements
+  Shepard's and Nosofsky's equations, built on this lab's `similarity()`;
+  see that lab's contract above and its own README for the exact formulas
+  and adaptations.
+- **Deferred:** a real-CLIP fixture recorded once on the GPU machine and
+  committed; Euclidean distance.
 
 ### Clocks
 

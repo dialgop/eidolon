@@ -42,6 +42,8 @@ tests/           tests, mirroring src/eidolon/
 - `labs/representation` — implemented (cosine similarity over embeddings
   supplied by the adapter, nearest-neighbour retrieval, and the recognition
   hit / false-alarm trade-off).
+- `labs/semantic_memory` — implemented (category learning/classification;
+  Nosofsky's exemplar-sum Luce choice rule, fed from `episodic_memory`).
 - Everything else — not started yet.
 
 See [`src/eidolon/labs/README.md`](src/eidolon/labs/README.md) for the

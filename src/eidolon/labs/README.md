@@ -57,8 +57,16 @@ A lab should:
   embeddings (`Embedding` lives in `eidolon.percepts`; Eidolon consumes
   embeddings and never produces them), nearest-neighbour retrieval, and the
   recognition hit / false-alarm trade-off. See its README.
+- `semantic_memory/` — implemented. Category learning and classification,
+  fed from `episodic_memory` the same way `episodic_memory` is fed from
+  `working_memory`. Unlike the other labs' "framing inspired by" use of
+  Shepard/Nosofsky/Rosch, this one implements their actual equations (a
+  Luce choice rule over summed exemplar similarity, not nearest-anything),
+  with the adaptations needed to run them on raw embeddings instead of
+  multidimensional-scaling-fitted coordinates. See its README for the
+  verbatim source equations and what we added.
 
-Follow-ups it unlocks: similarity recall in episodic memory and
-re-identification in the world model are now also built (above); semantic
-memory is still its own round. The general, non-visual attention lab stays
+All three follow-ups `representation` unlocked are now built: similarity
+recall in episodic memory, re-identification in the world model, and
+semantic memory itself. The general, non-visual attention lab stays
 deferred: there is no second use case yet.
