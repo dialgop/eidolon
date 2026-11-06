@@ -38,6 +38,8 @@ Early-stage experiments implement individual mechanisms in isolation, as
 - Predictive processing
 - Semantic memory *(added after the original roadmap; implemented — see
   note below)*
+- Procedural memory *(added after the original roadmap; implemented — see
+  note below)*
 - Representation *(added after the original roadmap; implemented — see
   note below)*
 
@@ -64,6 +66,15 @@ prerequisite, and is now built. It consumes embeddings; it does not produce
 them (the adapter does). All three follow-ups it unlocked are now also
 built: `episodic_memory.recall_by_similarity`, `world_model`'s
 re-identification, and `semantic_memory` (see their contracts below).
+
+Procedural memory (skill learning and action selection — "how to do it",
+not "what it is" or "what happened") wasn't in the original roadmap either,
+and wasn't one of representation's three promised follow-ups — it's a new
+addition, built once `semantic_memory` had already established the
+`episodic_memory → (peer lab)` consolidation pattern and the Luce-choice
+machinery this lab reuses via `representation.similarity`. It is a peer of
+`semantic_memory`, not downstream of it: both are fed from `episodic_memory`
+directly, and neither imports the other's internals.
 
 ## Inter-lab interface contracts
 
@@ -508,6 +519,88 @@ orchestrates it (currently `semantic_memory`'s own `demo.py`), calling
   code — `SemanticMemory` itself imports neither `PerceivedObject` nor
   `Episode`); unsupervised clustering is v1, not started.
 
+### `eidolon.labs.procedural_memory`
+
+Skill learning and context-sensitive action selection: a peer of
+`semantic_memory` (both fed from `episodic_memory` directly, neither
+importing the other), reusing the same Luce-choice-over-accumulated-
+evidence shape with its own strength mechanism instead of Nosofsky's.
+
+```text
+working_memory → episodic_memory → semantic_memory
+                                 └→ procedural_memory
+```
+
+- **Exposes:** `ProceduralMemory`, `Practice`, `SkillMatch`.
+- **`Practice`** (frozen): `context: Embedding | None`, `timestamp: int`.
+  **`SkillMatch`** (frozen): `skill: str`, `strength: float`, `probability:
+  float`.
+- **`ProceduralMemory(space, alpha, sensitivity, decay_rate)`:** all four
+  required, no defaults — same reasoning as `semantic_memory.sensitivity`:
+  none has a value either source paper supplies.
+- **Operations:** `practice(skill, context, timestamp) -> None` (unseen
+  name creates the skill; existing name adds to its history — no `Skill`
+  type, no separate registration, mirroring `semantic_memory.learn`
+  exactly), `strength(skill, context, now) -> float`, `select(context, now,
+  min_probability=None) -> SkillMatch | None`, `curve(skill) -> list[tuple[int,
+  float]]`, `skills`, `practice_count(skill)`, `len()` (distinct skills, not
+  total practice events).
+- **No internal clock; only `practice()` enforces ordering.**
+  `practice()`'s `timestamp` must not decrease across calls (the one
+  mutating method). `strength`/`select` take a caller-supplied `now` and
+  compute fresh each time, enforcing no ordering of their own — exactly
+  `Belief.confidence_at`'s contract: a pure function of stored data and the
+  time asked about, nothing mutated, no decay step to fall out of sync with
+  anything.
+- **`strength` sums every practice, time- and context-weighted — the same
+  "keep every instance" shape `semantic_memory` uses, not nearest-practice
+  or a running average.** Time weight is `(1 - decay_rate) **
+  (now - timestamp)`, the identical form `world_model` uses, so
+  `decay_rate` means the same thing in both labs. Context weight is
+  `exp(-sensitivity * (1 - similarity(context, practice.context)))`
+  (Shepard's gradient over cosine, the same construction
+  `semantic_memory._eta` uses, written locally since the two labs are peers
+  rather than a consolidation chain). A `None` context, on either side,
+  contributes at full weight (1.0) rather than being excluded or
+  penalized — it's uninformative about context-specificity, not negative
+  evidence. A never-practiced skill's strength is `0.0`, not an error.
+- **`select` is a Luce choice rule (Luce, 1959) over every known skill's
+  strength**, the same move `semantic_memory` makes via Nosofsky's
+  Equation 5. `None` if nothing has been practiced, or if every skill
+  scores zero. Ties go to whichever skill was practiced first. Interference
+  between context-similar skills is a free consequence of this
+  normalization, not a separate mechanism — tested explicitly with two
+  equally-practiced, context-identical skills splitting probability 50/50.
+  `min_probability` is a rejection threshold on the already-computed
+  winner, not a candidate filter (`semantic_memory.classify`'s contract,
+  reused).
+- **`curve` implements only the *shape* of Newell & Rosenbloom's (1981)
+  power law, not their model.** Their actual "general power function" is
+  four-parameter, `E(RT_N) = A_P + B_P·(N+E)^(−β)` (verified against the
+  equation as quoted by Heathcote, Brown & Mewhort, since the original
+  chapter itself wasn't freely available), with an asymptote A_P and a
+  *fitted* prior-practice parameter E — not a fixed shift, and "E fixed at
+  zero" (the common simplification) does **not** resolve N=0 either.
+  `curve()` drops the asymptote and uses `(N+1)` as the N=0 fix — **our own
+  choice, confirmed only after checking theirs wasn't simply "+1"** — and
+  returns a dimensionless relative-speed multiplier, not a calibrated
+  duration.
+- **Sources, one corrected mid-design.** Newell & Rosenbloom (1981) for the
+  power law (verified); Luce (1959) for the choice rule in `select`
+  (verified, same grounding `semantic_memory` relies on). The
+  accumulated-strength mechanism itself is **not** sourced: an earlier
+  proposal cited Logan (1988) for a "habit strength" idea, but the actual
+  paper (read in full, grepped for "Luce," "habit strength," "choice rule")
+  explicitly positions instance theory **against** strength theories — a
+  race among stored traces, not an accumulated scalar. Same category of
+  error as the earlier Fields (2013) misattribution in `world_model`'s
+  README, caught the same way: read the source before citing it. No
+  replacement citation is given; a real one would need its own verification
+  pass. Full detail in the lab's own README.
+- **No `compile_from_episodes`.** Same discipline as every other cross-lab
+  ingestion in this project: plain fields on the receiving method, with the
+  sending lab's shape assumed only in external glue code, not imported.
+
 ### `eidolon.labs.representation`
 
 Similarity over adapter-supplied embeddings. It consumes `Embedding`s (from
@@ -556,16 +649,20 @@ needs no torch, CUDA or GPU; tests use synthetic vectors.
 
 ### Clocks
 
-Three separate clocks exist today, by conscious choice rather than
+Four separate clocks exist today, by conscious choice rather than
 oversight: `working_memory`'s logical tick (advanced by `tick()`),
-`episodic_memory`'s encode counter (advanced by `encode()`), and the
+`episodic_memory`'s encode counter (advanced by `encode()`), the
 caller-supplied `Scene.observed_at` that `visual_attention` and
-`world_model` both read (the same clock, not a fourth one — `world_model`
-is a second consumer of it, same monotonicity rule, no clock of its own).
-None is wall-clock time and none is shared across labs, so each stays
-testable on its own and deterministic. The consequence is that "3 ticks"
-means something different in each lab. Unifying them behind one agent clock
-is deferred until embodiment provides one; when it does,
+`world_model` both read (the same clock, not a separate one each —
+`world_model` is a second consumer of it, same monotonicity rule, no clock
+of its own), and `procedural_memory`'s caller-supplied `timestamp`/`now` —
+a genuinely separate namespace from `Scene.observed_at`, not a third
+consumer of it, since this lab never sees a `Scene` at all, only
+`Embedding` contexts and plain `int`s the caller supplies directly. None is
+wall-clock time and none is shared across labs, so each stays testable on
+its own and deterministic. The consequence is that "3 ticks" means
+something different in each lab. Unifying them behind one agent clock is
+deferred until embodiment provides one; when it does,
 `PerceivedObject.observed_at` is the natural event time for the
 `occurred_at`/`encoded_at` split in episodic memory.
 

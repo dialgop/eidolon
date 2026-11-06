@@ -44,6 +44,9 @@ tests/           tests, mirroring src/eidolon/
   hit / false-alarm trade-off).
 - `labs/semantic_memory` — implemented (category learning/classification;
   Nosofsky's exemplar-sum Luce choice rule, fed from `episodic_memory`).
+- `labs/procedural_memory` — implemented (skill learning/action selection;
+  a Luce choice rule over accumulated, context- and time-weighted
+  practice, fed from `episodic_memory`; a peer of `semantic_memory`).
 - Everything else — not started yet.
 
 See [`src/eidolon/labs/README.md`](src/eidolon/labs/README.md) for the

@@ -66,7 +66,18 @@ A lab should:
   multidimensional-scaling-fitted coordinates. See its README for the
   verbatim source equations and what we added.
 
+- `procedural_memory/` — implemented. Skill learning and action selection,
+  a peer of `semantic_memory` (both fed from `episodic_memory` directly,
+  neither importing the other). Reuses the Luce-choice shape over its own
+  strength mechanism rather than Nosofsky's similarity sum. Newell &
+  Rosenbloom's power law and Luce's choice rule are genuinely cited and
+  verified; the strength-accumulation mechanism itself is explicitly
+  labeled as our own design, not sourced — an earlier proposal's citation
+  for it (Logan, 1988) turned out to be a real misattribution, caught by
+  reading the actual paper. See its README.
+
 All three follow-ups `representation` unlocked are now built: similarity
 recall in episodic memory, re-identification in the world model, and
-semantic memory itself. The general, non-visual attention lab stays
+semantic memory itself. `procedural_memory` is a new addition alongside
+them, not one of the three. The general, non-visual attention lab stays
 deferred: there is no second use case yet.
