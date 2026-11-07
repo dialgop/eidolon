@@ -47,6 +47,10 @@ tests/           tests, mirroring src/eidolon/
 - `labs/procedural_memory` — implemented (skill learning/action selection;
   a Luce choice rule over accumulated, context- and time-weighted
   practice, fed from `episodic_memory`; a peer of `semantic_memory`).
+- `labs/self_model` — implemented (the agent's own body state — pose,
+  battery, per-limb engine temperature, task status — fed incrementally
+  and timestamped per field, independently of `world_model`'s beliefs
+  about the external world).
 - Everything else — not started yet.
 
 See [`src/eidolon/labs/README.md`](src/eidolon/labs/README.md) for the

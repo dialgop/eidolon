@@ -647,24 +647,117 @@ needs no torch, CUDA or GPU; tests use synthetic vectors.
 - **Deferred:** a real-CLIP fixture recorded once on the GPU machine and
   committed; Euclidean distance.
 
+### `eidolon.labs.self_model`
+
+The agent's own body state — pose, battery, per-limb engine temperature,
+task status — kept independently of `world_model`'s beliefs about
+everything else, for `goals`/`planning` to consult. Fed incrementally, not
+as one atomic `Scene`-like snapshot: each field remembers its own
+last-updated time, so one field can be fresh while another is stale.
+
+```text
+adapter → SelfState → SelfModel.update() → (goals/planning: query()+freshness())
+                                          └→ (logging/demos: state())
+```
+
+- **Exposes:** `SelfModel`, `SelfState`, `SelfSnapshot`, `Pose`, `Battery`,
+  `Field`, `JOINT_GROUPS`.
+- **`Pose`** (frozen): `position` (3-tuple), `orientation` (quaternion
+  `(x, y, z, w)`, must be unit-norm within `1e-3`), `frame` — validated
+  against `SelfModel.frame` the same way `WorldModel.frame` is. **`Battery`**
+  (frozen): `level` in `[0, 1]`, `charging: bool` — kept together, not
+  split, since both come from one sensor read and share one timestamp.
+  **`engine_temperature`** is a closed set of five anatomical groups,
+  `JOINT_GROUPS = ("head", "l_arm", "r_arm", "l_leg", "r_leg")` — our own
+  grouping for this lab, not verified against any specific robot's SDK.
+  All floats across `Pose`/`Battery`/`engine_temperature` must be finite.
+- **`SelfState` (input) vs. `SelfSnapshot` (output) are two different
+  types, deliberately, not one type serving both roles.** `SelfState` is
+  what `update()` takes: `observed_at` plus whichever fields the adapter
+  has something new to report (`None` = "nothing new in this message," not
+  "unknown"). `state()` returns a `SelfSnapshot`, which has no
+  `observed_at` — so `sm.update(sm.state())` doesn't just violate a
+  documented warning, it raises `AttributeError` immediately. This replaced
+  an earlier one-type design that had a real round-trip footgun: feeding
+  `state()`'s output back into `update()` would have collapsed every
+  field's independent timestamp onto one shared value. `SelfSnapshot.as_of`
+  is the max of the reported fields' timestamps — a rough "anything fresh
+  at all" signal, not a per-field value. **`state()` is for logging, demos
+  and visualization; a consumer making a decision uses `query()` +
+  `freshness()`, never `state()`.**
+- **`query(field)`/`freshness(field, now) -> int | None`:** `field` is
+  `Literal["pose", "battery", "engine_temperature", "task_status"]`, with
+  `@overload`s on `query` narrowing its return type per field; both also
+  validate `field` at runtime and raise `ValueError` for anything else.
+  `query` returns unconditionally regardless of staleness — `WorldModel.get`'s
+  contract, reused. `freshness` is `now − last_updated_at` for that field,
+  or `None` if never reported — **a raw elapsed time, not a decayed
+  confidence**: see "Decay semantics differ from `world_model`'s" below.
+  Only `freshness` has a `confidence`-shaped future extension (natural once
+  a field has more than one source); not built now.
+- **Decay semantics differ from `world_model`'s — the reason this lab
+  reuses the decay *pattern*, not the *mechanism*.** `WorldModel.confidence_at`
+  decays because the *world* may have changed while unobserved. `self_model`
+  has no `decay_rate`: a stale field here means *the sensor stopped
+  reporting*, not *the agent is less sure of its own state*, so there's no
+  quantity to discount. `goals`/`planning` must treat `self_model` staleness
+  as a reporting gap, `world_model` staleness as an eroding belief — the two
+  are not the same claim.
+- **The pose/`task_status` staleness ambiguity is documented, not
+  resolved, and has no `is_moving` field.** A stale `pose` alone can't
+  distinguish "idle, sensor quiet" from "moved, sensor quiet" — a consumer
+  needing that distinction cross-checks `task_status` itself.
+- **`task_status` is an open string by design**, not a closed `Literal` —
+  `goals`/`planning` don't exist yet to dictate the real vocabulary;
+  closing it prematurely risks guessing wrong. To be closed once a real
+  consumer exists.
+- **Units and clock-sharing are a documented precondition, not an
+  abstraction.** `observed_at`/`as_of`/`now` are milliseconds, on one
+  monotonic clock the adapter and every consumer must share — mixing a
+  Python monotonic clock with ROS 2 time across a process boundary breaks
+  `freshness` silently (it still returns a number; the number stops
+  meaning what's expected). No clock abstraction is added to prevent this.
+- **Single-threaded by contract, like every other lab's mutating method —
+  stated explicitly here because ROS 2 callbacks are concurrent by
+  default.** `update()` has no internal locking; a ROS 2 deployment must
+  serialize calls into one `SelfModel` itself.
+- **Not extracted to `eidolon.percepts`.** Proprioception isn't perception
+  of the external world, so `SelfState`/`SelfSnapshot` live in
+  `eidolon.labs.self_model`. If a second lab ever needs this type, the same
+  Rule of Three that moved `PerceivedObject`/`Scene` out of
+  `visual_attention` would apply here too — not before.
+- **Sources:** none. Unlike `semantic_memory`/`procedural_memory`, this lab
+  implements no cited equation — it reuses `Belief.confidence_at`'s *shape*
+  (pure function of stored `(value, timestamp)` and a query time) without
+  adopting its decay *mechanism*. See the lab's own README for the full
+  reasoning.
+
 ### Clocks
 
-Four separate clocks exist today, by conscious choice rather than
+Five separate clocks exist today, by conscious choice rather than
 oversight: `working_memory`'s logical tick (advanced by `tick()`),
 `episodic_memory`'s encode counter (advanced by `encode()`), the
 caller-supplied `Scene.observed_at` that `visual_attention` and
 `world_model` both read (the same clock, not a separate one each —
 `world_model` is a second consumer of it, same monotonicity rule, no clock
-of its own), and `procedural_memory`'s caller-supplied `timestamp`/`now` —
-a genuinely separate namespace from `Scene.observed_at`, not a third
-consumer of it, since this lab never sees a `Scene` at all, only
-`Embedding` contexts and plain `int`s the caller supplies directly. None is
-wall-clock time and none is shared across labs, so each stays testable on
-its own and deterministic. The consequence is that "3 ticks" means
-something different in each lab. Unifying them behind one agent clock is
-deferred until embodiment provides one; when it does,
-`PerceivedObject.observed_at` is the natural event time for the
-`occurred_at`/`encoded_at` split in episodic memory.
+of its own), `procedural_memory`'s caller-supplied `timestamp`/`now` — a
+genuinely separate namespace from `Scene.observed_at`, not a third consumer
+of it, since this lab never sees a `Scene` at all, only `Embedding`
+contexts and plain `int`s the caller supplies directly — and
+`self_model`'s caller-supplied `observed_at`/`now`, a fifth, independent
+namespace with its own unit (milliseconds, documented, since `freshness()`
+is meant to be calibrated against a real threshold, unlike the other labs'
+more abstract tick counts) and its own per-field granularity (each field
+remembers its own last-updated time, not one shared value per call, unlike
+every other lab here). None is wall-clock time and none is shared across
+labs, so each stays testable on its own and deterministic. The consequence
+is that "3 ticks" means something different in each lab. Unifying them
+behind one agent clock is deferred until embodiment provides one; when it
+does, `PerceivedObject.observed_at` is the natural event time for the
+`occurred_at`/`encoded_at` split in episodic memory, and `self_model`'s
+documented "adapter and consumer must share one clock" precondition is the
+first thing such a unification would actually resolve, rather than merely
+document.
 
 ### Shared base interface (e.g. a `CognitiveModule` protocol)
 
@@ -792,11 +885,10 @@ environment, the vision pipeline) gets selectively pulled into
 ## Embodiment plan (documented, not started)
 
 **Decided: not starting yet.** The cognitive pipeline isn't complete
-enough to close a perception–cognition–action loop: self-model, goals and
-planning don't exist, and the representation lab (needed for
-re-identification, see below) is next. Embodiment also deserves its own
-cycle, not a tail on a lab round. This section records the plan so it isn't
-re-derived later; it is not a spec.
+enough to close a perception–cognition–action loop: `self_model` is now
+built, but goals and planning don't exist yet. Embodiment also deserves its
+own cycle, not a tail on a lab round. This section records the plan so it
+isn't re-derived later; it is not a spec.
 
 **What the embodiment/adapter side owns** (everything Eidolon's contracts
 already assume it does, and Eidolon never does):
@@ -821,10 +913,10 @@ replayed against Eidolon without the simulator, which is also how real
 streams become test fixtures.
 
 **Entry criteria** (as decided, revisit when reached): a cognitive pipeline
-complete enough to close the loop — self-model, goals and planning — and
-the representation lab, so the robot can keep stable beliefs across
-occlusion. Actions and a predictor (state + action → next state) belong to
-that later cycle, not this document.
+complete enough to close the loop — goals and planning, now that
+`self_model` and the representation lab both already exist. Actions and a
+predictor (state + action → next state) belong to that later cycle, not
+this document.
 
 ## Long-term vision
 

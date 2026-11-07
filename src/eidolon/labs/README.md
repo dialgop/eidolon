@@ -76,8 +76,20 @@ A lab should:
   for it (Logan, 1988) turned out to be a real misattribution, caught by
   reading the actual paper. See its README.
 
+- `self_model/` — implemented. The agent's own body state (pose, battery,
+  per-limb engine temperature, task status), kept independently of
+  `world_model`'s beliefs about everything else, fed incrementally so each
+  field ages on its own clock. Reuses `Belief.confidence_at`'s *pattern*
+  (pure function of stored value + timestamp and a query time) but not its
+  decay *mechanism* — self-state staleness is a reporting gap, not an
+  eroding belief, so `freshness()` returns a raw elapsed time, not a
+  decayed confidence. See its README for the `SelfState`/`SelfSnapshot`
+  split (and the round-trip footgun it structurally closes off) and the
+  documented, deliberately unresolved pose/`task_status` staleness
+  ambiguity.
+
 All three follow-ups `representation` unlocked are now built: similarity
 recall in episodic memory, re-identification in the world model, and
-semantic memory itself. `procedural_memory` is a new addition alongside
-them, not one of the three. The general, non-visual attention lab stays
-deferred: there is no second use case yet.
+semantic memory itself. `procedural_memory` and `self_model` are new
+additions alongside them, not among the three. The general, non-visual
+attention lab stays deferred: there is no second use case yet.
