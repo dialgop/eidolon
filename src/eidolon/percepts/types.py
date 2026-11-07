@@ -62,6 +62,10 @@ class PerceivedObject:
     and it is what similarity and re-identification will use. `position` is
     carried but unused by v0 attention; when given, `frame` must name the
     coordinate frame it's expressed in.
+
+    `observed_at`: unit is milliseconds, on a monotonic clock. Source:
+    caller-supplied — the adapter and every consumer reading it (currently
+    `visual_attention` and `world_model`) must share one such clock.
     """
 
     track_id: str
@@ -122,6 +126,10 @@ class Scene:
     claimed, a consumer has no negative evidence and cannot conclude an
     object is gone versus merely unobserved — a conscious limitation, not a
     default to fill in casually.
+
+    `observed_at`: unit is milliseconds, on a monotonic clock. Source:
+    caller-supplied — same clock as `PerceivedObject.observed_at` (see
+    above); the adapter and every consumer must share it.
     """
 
     observed_at: int

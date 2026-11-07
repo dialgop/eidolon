@@ -44,6 +44,16 @@ limitation when two objects look identical.
 
 ## Design notes
 
+- **Unit: milliseconds. Source: caller-supplied; adapter and consumer must
+  share one monotonic clock.** `Scene.observed_at`/`Belief.last_observed_at`
+  commit to this explicitly, the same declaration `self_model` makes for
+  its own timestamps and `procedural_memory` makes for `timestamp`/`now` —
+  one coherent decision across every caller-supplied-timestamp lab, not
+  three independently guessed ones, since a real deployment (one robot, one
+  Webots) is expected to feed all three from the same adapter. `decay_rate`
+  is accordingly a per-millisecond fraction; if the real unit ever turns
+  out to be wrong, it changes in all three labs at once, at no cost, since
+  nothing here hardcodes a real-world calibration against it today.
 - **Contradicted vs. forgotten are different claims, not the same removal
   with two names.** `forgotten` is passive: no evidence either way, just
   decay past a threshold — absence of evidence, not evidence of absence.

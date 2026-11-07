@@ -13,7 +13,12 @@ Two pillars, kept honest about which is sourced and which isn't:
 
 No internal clock: `practice()`'s `timestamp` and `strength()`/`select()`'s
 `now` are caller-supplied, like `world_model`/`visual_attention`, not an
-internal counter like `working_memory`/`episodic_memory`.
+internal counter like `working_memory`/`episodic_memory`. Unit:
+milliseconds, the same as `world_model`'s and `self_model`'s — a single,
+coherent convention across every caller-supplied-timestamp lab rather than
+three separately-decided ones, since a real adapter (one robot, one
+Webots) is expected to feed all three. Source: caller-supplied; the
+adapter and every consumer must share one monotonic clock.
 """
 
 from __future__ import annotations
@@ -30,7 +35,11 @@ class Practice:
     """One practice event. `context` is optional: a context-free practice
     (drilled abstractly, not tied to a situation) contributes to every
     contextual strength query without being weighted by context similarity
-    — see `ProceduralMemory.strength`."""
+    — see `ProceduralMemory.strength`.
+
+    `timestamp`: unit is milliseconds, on a monotonic clock shared with
+    the adapter and whoever calls `strength`/`select` (see module
+    docstring)."""
 
     context: Embedding | None
     timestamp: int
@@ -59,7 +68,10 @@ class ProceduralMemory:
     consolidation chain, so neither imports the other's internals).
     `decay_rate`: time decay, in the same `(1 - decay_rate) ** elapsed`
     form `world_model` uses, so `decay_rate` means the same thing in both
-    labs rather than two different conventions under one name.
+    labs rather than two different conventions under one name — and since
+    `timestamp`/`now` are also in milliseconds like `world_model`'s
+    `observed_at`, `decay_rate` is calibrated against the same real unit
+    in both, not just the same formula shape.
     """
 
     space: str

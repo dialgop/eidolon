@@ -78,6 +78,15 @@ procedural_memory)` pattern, one branch further along.
 
 ## Design notes
 
+- **Unit: milliseconds. Source: caller-supplied; adapter and consumer must
+  share one monotonic clock.** `practice()`'s `timestamp` and
+  `strength()`/`select()`'s `now` commit to this explicitly — the same
+  declaration `world_model` makes for `Scene.observed_at` and `self_model`
+  makes for its own timestamps, one coherent decision across every
+  caller-supplied-timestamp lab rather than three guessed independently,
+  since a real deployment (one robot, one Webots) is expected to feed all
+  three from the same adapter. `decay_rate` is accordingly a
+  per-millisecond fraction.
 - **No `Skill` type, no separate registration step.** `practice(skill:
   str, ...)` on an unseen name creates it; on an existing name, it just
   adds to its history — mirroring `semantic_memory.learn(label,

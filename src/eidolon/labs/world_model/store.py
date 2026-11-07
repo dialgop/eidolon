@@ -23,6 +23,11 @@ class Belief:
     Frozen like `Episode`, not mutated in place like working memory's
     `Item`: a refresh replaces the store's entry with a new `Belief`
     rather than mutating fields of the old one.
+
+    `last_observed_at`: unit is milliseconds, the same clock as
+    `Scene.observed_at` (see `eidolon.percepts`). Source: caller-supplied;
+    `decay_rate` must be calibrated against this unit, not against an
+    arbitrary tick count.
     """
 
     percept: PerceivedObject
@@ -46,7 +51,9 @@ class Belief:
         `confidence`/`last_observed_at` — this does *not* read or change
         anything stored: it is a pure function of this snapshot and the
         time asked about. `stored_confidence` (this object's `.confidence`)
-        is never itself decayed in place; see the module docstring."""
+        is never itself decayed in place; see the module docstring.
+        `observed_at` here is in milliseconds, same clock as
+        `last_observed_at`."""
         elapsed = observed_at - self.last_observed_at
         return self.confidence * (1.0 - decay_rate) ** elapsed
 
@@ -82,7 +89,14 @@ class WorldModel:
     """`frame` is the single coordinate frame this store holds beliefs in;
     it does no transforms itself (see the lab README). `decay_rate` and
     `forget_threshold` govern how an unobserved belief's confidence fades;
-    see `update()` for how.
+    see `update()` for how. Every timestamp this lab reads or stores
+    (`Scene.observed_at`, `Belief.last_observed_at`) is in milliseconds, on
+    a monotonic clock the adapter and every consumer must share — the same
+    contract `self_model` documents, since they're expected to be fed by
+    the same adapter.
+
+    `decay_rate` is accordingly a per-millisecond fraction; recalibrate it
+    if the unit it's actually fed in ever changes.
 
     `reidentify_threshold`/`reidentify_max_distance` enable re-identifying
     a new `track_id` as a previously tracked, currently unobserved object —

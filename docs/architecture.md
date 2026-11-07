@@ -376,7 +376,12 @@ yet, and is deferred.
   `frame` is configured once, no transforms happen here, and any object's
   or coverage region's `frame` mismatching it raises — validated in a pass
   before anything is mutated, so a rejected `update()` call changes
-  nothing. `observed_at` must not decrease between calls.
+  nothing. `observed_at` must not decrease between calls. **Unit:
+  milliseconds. Source: caller-supplied; adapter and consumer must share
+  one monotonic clock** — the same declaration `self_model` and
+  `procedural_memory` make for their own timestamps (see "Clocks" below):
+  one coherent decision across every caller-supplied-timestamp lab, not
+  three guessed independently.
 - **Re-identification: one specific failure mode, not general identity
   resolution.** Still "a new `track_id` is a new belief" by default.
   `reidentify_threshold`/`reidentify_max_distance` (required together, off
@@ -551,7 +556,9 @@ working_memory → episodic_memory → semantic_memory
   compute fresh each time, enforcing no ordering of their own — exactly
   `Belief.confidence_at`'s contract: a pure function of stored data and the
   time asked about, nothing mutated, no decay step to fall out of sync with
-  anything.
+  anything. **Unit: milliseconds. Source: caller-supplied; adapter and
+  consumer must share one monotonic clock** — the same declaration
+  `world_model` and `self_model` make (see "Clocks" below).
 - **`strength` sums every practice, time- and context-weighted — the same
   "keep every instance" shape `semantic_memory` uses, not nearest-practice
   or a running average.** Time weight is `(1 - decay_rate) **
@@ -734,30 +741,47 @@ adapter → SelfState → SelfModel.update() → (goals/planning: query()+freshn
 
 ### Clocks
 
-Five separate clocks exist today, by conscious choice rather than
-oversight: `working_memory`'s logical tick (advanced by `tick()`),
-`episodic_memory`'s encode counter (advanced by `encode()`), the
-caller-supplied `Scene.observed_at` that `visual_attention` and
-`world_model` both read (the same clock, not a separate one each —
-`world_model` is a second consumer of it, same monotonicity rule, no clock
-of its own), `procedural_memory`'s caller-supplied `timestamp`/`now` — a
-genuinely separate namespace from `Scene.observed_at`, not a third consumer
-of it, since this lab never sees a `Scene` at all, only `Embedding`
-contexts and plain `int`s the caller supplies directly — and
-`self_model`'s caller-supplied `observed_at`/`now`, a fifth, independent
-namespace with its own unit (milliseconds, documented, since `freshness()`
-is meant to be calibrated against a real threshold, unlike the other labs'
-more abstract tick counts) and its own per-field granularity (each field
-remembers its own last-updated time, not one shared value per call, unlike
-every other lab here). None is wall-clock time and none is shared across
-labs, so each stays testable on its own and deterministic. The consequence
-is that "3 ticks" means something different in each lab. Unifying them
-behind one agent clock is deferred until embodiment provides one; when it
-does, `PerceivedObject.observed_at` is the natural event time for the
-`occurred_at`/`encoded_at` split in episodic memory, and `self_model`'s
-documented "adapter and consumer must share one clock" precondition is the
-first thing such a unification would actually resolve, rather than merely
-document.
+Five labs read or write a timestamp, but there are really only **two
+structurally different mechanisms, not five independent conventions**:
+
+- **Self-advanced internal counters, with no real-world unit at all**:
+  `working_memory`'s logical tick (advanced by `tick()`) and
+  `episodic_memory`'s encode counter (advanced by `encode()`). Neither
+  takes a caller-supplied time value — the store increments its own
+  counter — so "3 ticks" is a relative step count by construction in each,
+  and the two counters are still independent namespaces from each other
+  (one tick of `working_memory` has no relationship to one `encode()` of
+  `episodic_memory`).
+- **Caller-supplied values standing in for one real time axis**: the
+  `Scene.observed_at` that `visual_attention` and `world_model` both read
+  (the same clock, not a separate one each), `procedural_memory`'s
+  `timestamp`/`now`, and `self_model`'s `observed_at`/`now`. These three are
+  **one coherent decision, not three guessed independently**: all three
+  commit explicitly to the same unit (milliseconds) and the same source
+  contract ("caller-supplied; adapter and consumer must share one monotonic
+  clock" — see each lab's own contract above and README), on the reasoning
+  that a real deployment (one robot, one Webots) is expected to feed all
+  three from the same adapter, so there is no reason to leave any of them
+  unit-less while declaring it for only one. `self_model` additionally
+  tracks time with its own per-field granularity (each field remembers its
+  own last-updated time, not one shared value per call) — a genuine
+  difference in *granularity*, not in unit or source.
+
+None of these five is wall-clock time, and the two self-advanced counters
+are still not shared with anything — that part of the original design
+holds. What changed is that the three caller-supplied labs are no longer
+"three separate namespaces that happen to all use `int`": they are one
+declared convention (milliseconds, shared monotonic clock), applied
+consistently so that if the real unit or source ever turns out to be wrong,
+correcting it is a single, coordinated change across all three — not a
+decision deferred to whenever embodiment arrives. What embodiment still
+has to resolve is only the two self-advanced counters, and whether a real
+adapter genuinely supplies one shared clock across processes (ROS time vs.
+wall-clock vs. Python monotonic) — a deployment question, not a design one,
+and the reason the shared-clock requirement is written as a *precondition*
+here rather than enforced in code. When embodiment does provide a real
+clock, `PerceivedObject.observed_at` is the natural event time for the
+`occurred_at`/`encoded_at` split in episodic memory.
 
 ### Shared base interface (e.g. a `CognitiveModule` protocol)
 
